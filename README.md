@@ -1,9 +1,9 @@
-# Riva
+# 🧐 rivA
 
 Observe, monitor, and control local AI agents running on your machine.
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License"></a>
   <a href="https://pypi.org/project/riva-agent/"><img src="https://img.shields.io/pypi/v/riva-agent.svg?style=for-the-badge" alt="PyPI"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/python-%3E%3D3.11-green.svg?style=for-the-badge" alt="Python"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20WSL2-lightgrey.svg?style=for-the-badge" alt="Platform"></a>
@@ -408,4 +408,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.

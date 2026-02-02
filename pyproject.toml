@@ -7,7 +7,7 @@ name = "riva-agent"
 version = "0.1.0"
 description = "AI Agent Task Manager - discover and monitor AI coding agents running on your machine"
 readme = "README.md"
-license = {text = "Apache-2.0"}
+license = {text = "MIT"}
 requires-python = ">=3.11"
 authors = [
     {name = "Riva Contributors"},
@@ -17,7 +17,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
