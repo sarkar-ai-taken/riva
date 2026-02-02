@@ -1,5 +1,9 @@
 # Release History
 
+## v0.2.1 (2026-02-02)
+
+- Fix repository URLs to point to correct GitHub organization (`sarkar-ai-taken/riva`)
+
 ## v0.2.0 (2026-02-02)
 
 Major release: hardened security audits, expanded agent support, CPU monitoring fix, child process tracking, and timeline replay.
