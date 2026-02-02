@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "riva-agent"
+name = "riva"
 version = "0.1.0"
 description = "AI Agent Task Manager - discover and monitor AI coding agents running on your machine"
 readme = "README.md"
