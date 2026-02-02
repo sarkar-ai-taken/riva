@@ -187,15 +187,16 @@ def list_agents() -> None:
 
 @cli.command()
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def audit(as_json: bool) -> None:
+@click.option("--network", "include_network", is_flag=True, help="Include network security checks.")
+def audit(as_json: bool, include_network: bool) -> None:
     """Run a security audit and print a report."""
     from riva.core.audit import run_audit
 
-    results = run_audit()
+    results = run_audit(include_network=include_network)
 
     if as_json:
         click.echo(json.dumps(
-            [{"check": r.check, "status": r.status, "detail": r.detail} for r in results],
+            [{"check": r.check, "status": r.status, "detail": r.detail, "severity": r.severity, "category": r.category} for r in results],
             indent=2,
         ))
     else:
@@ -208,16 +209,150 @@ def audit(as_json: bool) -> None:
         )
         table.add_column("Check", style="bold white", min_width=20)
         table.add_column("Status", min_width=8)
+        table.add_column("Severity", min_width=10)
         table.add_column("Detail", min_width=40)
 
         status_style = {"pass": "bold green", "warn": "bold yellow", "fail": "bold red"}
+        severity_style = {
+            "info": "dim", "low": "blue", "medium": "yellow",
+            "high": "bold red", "critical": "bold red on white",
+        }
         for r in results:
             style = status_style.get(r.status, "")
-            table.add_row(r.check, f"[{style}]{r.status.upper()}[/{style}]", r.detail)
+            sev_style = severity_style.get(r.severity, "dim")
+            table.add_row(
+                r.check,
+                f"[{style}]{r.status.upper()}[/{style}]",
+                f"[{sev_style}]{r.severity}[/{sev_style}]",
+                r.detail,
+            )
 
         console.print()
         console.print(table)
         console.print()
+
+
+@cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def network(as_json: bool) -> None:
+    """Show active network connections grouped by agent."""
+    from riva.core.network import collect_all_connections
+
+    monitor = ResourceMonitor()
+    instances = monitor.scan_once()
+    snapshots = collect_all_connections(instances)
+
+    if as_json:
+        output = []
+        for snap in snapshots:
+            output.append({
+                "agent": snap.agent_name,
+                "pid": snap.pid,
+                "connection_count": snap.connection_count,
+                "connections": [
+                    {
+                        "local": f"{c.local_addr}:{c.local_port}",
+                        "remote": f"{c.remote_addr}:{c.remote_port}",
+                        "status": c.status,
+                        "hostname": c.hostname,
+                        "known_service": c.known_service,
+                        "is_tls": c.is_tls,
+                    }
+                    for c in snap.connections
+                ],
+            })
+        click.echo(json.dumps(output, indent=2))
+    else:
+        console = Console()
+        if not snapshots:
+            console.print("\n[dim]No running agents with network connections.[/dim]\n")
+            return
+
+        for snap in snapshots:
+            table = Table(
+                title=f"{snap.agent_name} (PID {snap.pid}) — {snap.connection_count} connections",
+                expand=True,
+                title_style="bold cyan",
+                border_style="bright_blue",
+            )
+            table.add_column("Local", min_width=20)
+            table.add_column("Remote", min_width=20)
+            table.add_column("Status", min_width=12)
+            table.add_column("Hostname", min_width=20)
+            table.add_column("Service", min_width=15)
+            table.add_column("TLS", min_width=5)
+
+            for c in snap.connections:
+                status_style = "green" if c.status == "ESTABLISHED" else "yellow" if c.status == "CLOSE_WAIT" else "red" if c.status == "TIME_WAIT" else ""
+                tls_str = "[green]✓[/green]" if c.is_tls else "[dim]✗[/dim]"
+                table.add_row(
+                    f"{c.local_addr}:{c.local_port}",
+                    f"{c.remote_addr}:{c.remote_port}",
+                    f"[{status_style}]{c.status}[/{status_style}]" if status_style else c.status,
+                    c.hostname or "—",
+                    c.known_service or "—",
+                    tls_str,
+                )
+
+            console.print()
+            console.print(table)
+        console.print()
+
+
+@cli.command()
+@click.option("--hours", default=1.0, type=float, help="Hours of history to show.")
+@click.option("--agent", "agent_name", default=None, help="Filter by agent name.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def history(hours: float, agent_name: str | None, as_json: bool) -> None:
+    """Show persisted snapshots from the database."""
+    from riva.core.storage import RivaStorage
+
+    storage = RivaStorage()
+    try:
+        snapshots = storage.get_snapshots(agent_name=agent_name, hours=hours)
+
+        if as_json:
+            click.echo(json.dumps(snapshots, indent=2))
+        else:
+            console = Console()
+            if not snapshots:
+                console.print(f"\n[dim]No snapshots in the last {hours} hour(s).[/dim]\n")
+                return
+
+            table = Table(
+                title=f"Historical Snapshots (last {hours}h)",
+                expand=True,
+                title_style="bold cyan",
+                border_style="bright_blue",
+            )
+            table.add_column("Agent", style="bold white", min_width=14)
+            table.add_column("Time", min_width=20)
+            table.add_column("PID", justify="right", min_width=7)
+            table.add_column("CPU %", justify="right", min_width=7)
+            table.add_column("Memory MB", justify="right", min_width=10)
+            table.add_column("Connections", justify="right", min_width=11)
+            table.add_column("Status", min_width=10)
+
+            import datetime
+            for s in snapshots[:100]:  # Limit display
+                ts = datetime.datetime.fromtimestamp(s["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                table.add_row(
+                    s.get("agent_name", "?"),
+                    ts,
+                    str(s.get("pid", "—")),
+                    f"{s.get('cpu_percent', 0):.1f}",
+                    f"{s.get('memory_mb', 0):.1f}",
+                    str(s.get("connection_count", 0)),
+                    s.get("status", "—"),
+                )
+
+            console.print()
+            console.print(table)
+            if len(snapshots) > 100:
+                console.print(f"  [dim]Showing 100 of {len(snapshots)} snapshots[/dim]")
+            console.print()
+    finally:
+        storage.close()
 
 
 @cli.group(invoke_without_command=True)

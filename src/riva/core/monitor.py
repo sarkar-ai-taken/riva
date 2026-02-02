@@ -19,6 +19,7 @@ class ResourceSnapshot:
     timestamp: float
     cpu_percent: float
     memory_mb: float
+    connection_count: int = 0
 
 
 @dataclass
@@ -48,17 +49,20 @@ class ResourceMonitor:
         registry: AgentRegistry | None = None,
         interval: float = 2.0,
         history_size: int = 60,
+        storage: object | None = None,
     ) -> None:
         self._registry = registry or get_default_registry()
         self._scanner = ProcessScanner(cache_ttl=interval)
         self._interval = interval
         self._history_size = history_size
+        self._storage = storage
 
         self._instances: list[AgentInstance] = []
         self._histories: dict[str, AgentHistory] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._poll_count = 0
 
     @property
     def instances(self) -> list[AgentInstance]:
@@ -90,6 +94,28 @@ class ResourceMonitor:
             else:
                 refreshed.append(inst)
 
+        # Collect network connections for running agents
+        try:
+            from riva.core.network import collect_connections
+            for inst in refreshed:
+                if inst.status == AgentStatus.RUNNING and inst.pid:
+                    conns = collect_connections(inst.pid)
+                    inst.extra["network"] = [
+                        {
+                            "local_addr": c.local_addr,
+                            "local_port": c.local_port,
+                            "remote_addr": c.remote_addr,
+                            "remote_port": c.remote_port,
+                            "status": c.status,
+                            "hostname": c.hostname,
+                            "known_service": c.known_service,
+                            "is_tls": c.is_tls,
+                        }
+                        for c in conns
+                    ]
+        except Exception:
+            pass
+
         now = time.time()
         with self._lock:
             self._instances = refreshed
@@ -103,13 +129,33 @@ class ResourceMonitor:
                         pid=inst.pid,
                         snapshots=deque(maxlen=self._history_size),
                     )
+                conn_count = len(inst.extra.get("network", []))
                 self._histories[key].snapshots.append(
                     ResourceSnapshot(
                         timestamp=now,
                         cpu_percent=inst.cpu_percent,
                         memory_mb=inst.memory_mb,
+                        connection_count=conn_count,
                     )
                 )
+
+        # Persist to storage if available
+        if self._storage is not None:
+            try:
+                for inst in refreshed:
+                    if inst.status == AgentStatus.RUNNING:
+                        conn_count = len(inst.extra.get("network", []))
+                        self._storage.record_snapshot(inst, connection_count=conn_count)
+            except Exception:
+                pass
+
+        # Periodic cleanup (every ~1800 polls = ~1 hour at 2s interval)
+        self._poll_count += 1
+        if self._storage is not None and self._poll_count % 1800 == 0:
+            try:
+                self._storage.cleanup()
+            except Exception:
+                pass
 
     def _run(self) -> None:
         """Background thread loop."""

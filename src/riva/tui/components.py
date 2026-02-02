@@ -246,3 +246,83 @@ def build_usage_card(instance: AgentInstance) -> Panel:
         border_style="cyan",
         expand=True,
     )
+
+
+def build_network_table(instances: list[AgentInstance]) -> Table:
+    """Build a network connections table for running agents."""
+    table = Table(
+        title="Network Connections",
+        expand=True,
+        title_style="bold cyan",
+        border_style="bright_blue",
+    )
+    table.add_column("Agent", style="bold white", min_width=14)
+    table.add_column("Remote", min_width=20)
+    table.add_column("Status", min_width=12)
+    table.add_column("Hostname", min_width=20)
+    table.add_column("Service", min_width=15)
+    table.add_column("TLS", min_width=5)
+
+    has_conns = False
+    for inst in instances:
+        if inst.status != AgentStatus.RUNNING:
+            continue
+        network = inst.extra.get("network", [])
+        for conn in network:
+            has_conns = True
+            status = conn.get("status", "")
+            status_style = "green" if status == "ESTABLISHED" else "yellow" if status == "CLOSE_WAIT" else "red" if status == "TIME_WAIT" else "dim"
+            tls_text = Text("✓", style="green") if conn.get("is_tls") else Text("✗", style="dim")
+            table.add_row(
+                inst.name,
+                f"{conn.get('remote_addr', '')}:{conn.get('remote_port', '')}",
+                Text(status, style=status_style),
+                conn.get("hostname") or "—",
+                conn.get("known_service") or "—",
+                tls_text,
+            )
+
+    if not has_conns:
+        table.add_row("[dim]No network connections[/dim]", "", "", "", "", "")
+
+    return table
+
+
+def build_security_panel(audit_results: list | None = None) -> Panel:
+    """Build a security audit summary panel."""
+    if not audit_results:
+        return Panel(
+            "[dim]No audit results. Run [bold]riva audit[/bold] for details.[/dim]",
+            title="Security",
+            title_align="left",
+            border_style="dim",
+            expand=True,
+        )
+
+    lines: list[str] = []
+    pass_count = sum(1 for r in audit_results if r.status == "pass")
+    warn_count = sum(1 for r in audit_results if r.status == "warn")
+    fail_count = sum(1 for r in audit_results if r.status == "fail")
+
+    lines.append(
+        f"[bold green]{pass_count} passed[/bold green]  "
+        f"[bold yellow]{warn_count} warnings[/bold yellow]  "
+        f"[bold red]{fail_count} failed[/bold red]"
+    )
+
+    # Show failures and warnings
+    for r in audit_results:
+        if r.status == "fail":
+            lines.append(f"  [bold red]FAIL[/bold red] {r.check}: {r.detail}")
+        elif r.status == "warn":
+            lines.append(f"  [bold yellow]WARN[/bold yellow] {r.check}: {r.detail}")
+
+    content = "\n".join(lines)
+    border = "red" if fail_count > 0 else "yellow" if warn_count > 0 else "green"
+    return Panel(
+        content,
+        title="Security Summary",
+        title_align="left",
+        border_style=border,
+        expand=True,
+    )

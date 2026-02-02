@@ -16,6 +16,8 @@ from riva.tui.components import (
     build_agent_card,
     build_agent_table,
     build_env_table,
+    build_network_table,
+    build_security_panel,
 )
 from riva.utils.formatting import format_number
 
@@ -75,11 +77,13 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
 
     layout["header"].update(_build_header())
 
-    # Body: agent table + detail cards + usage summary + env vars
+    # Body: agent table + detail cards + network + security + usage + env
     body = Layout()
     body.split_column(
         Layout(name="table", size=len(instances) + 6),
         Layout(name="details"),
+        Layout(name="network", size=8),
+        Layout(name="security", size=6),
         Layout(name="usage", size=3),
         Layout(name="env", size=10),
     )
@@ -107,6 +111,12 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
                 border_style="dim",
             )
         )
+
+    # Network connections panel
+    body["network"].update(build_network_table(instances))
+
+    # Security panel
+    body["security"].update(build_security_panel())
 
     body["usage"].update(_build_usage_summary(monitor))
 
