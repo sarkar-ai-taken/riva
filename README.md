@@ -477,9 +477,9 @@ MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
-## Share This Project
+## Share
 
-If you find Riva useful, help spread the word:
+If you find Riva useful, feel free to share:
 
-[![Share on X](https://img.shields.io/badge/Share_on_X-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/intent/tweet?text=Seeing%20what%20AI%20agents%20are%20actually%20doing%20on%20your%20machine%20https%3A%2F%2Fgithub.com%2Fsarkar-ai-taken%2Friva.%20Local%20AI%20agents%20need%20observability%20too.)
-[![Post to Hacker News](https://img.shields.io/badge/Post_to_HN-F06600?style=for-the-badge&logo=ycombinator&logoColor=white)](https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fsarkar-ai-taken%2Friva&t=Riva%3A%20Local-first%20observability%20for%20AI%20agents)
+- [Share on X](https://x.com/intent/post?text=Seeing%20what%20AI%20agents%20are%20actually%20doing%20on%20your%20machine.%20Local%20AI%20agents%20need%20observability%20too.&url=https%3A%2F%2Fgithub.com%2Fsarkar-ai%2Friva&via=sarkar_ai)
+- [Post to Hacker News](https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fsarkar-ai%2Friva&t=Riva%3A%20Local-first%20observability%20for%20AI%20agents)
