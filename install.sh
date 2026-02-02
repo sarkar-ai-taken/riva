@@ -143,7 +143,7 @@ print_summary() {
     echo "    riva web start -f    # Foreground mode"
     echo "    riva --help          # Full help"
     echo ""
-    echo -e "  Docs: ${CYAN}https://github.com/sarkar-ai/riva${NC}"
+    echo -e "  Docs: ${CYAN}https://github.com/sarkar-ai-taken/riva${NC}"
     echo ""
 }
 

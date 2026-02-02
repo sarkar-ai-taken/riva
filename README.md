@@ -118,13 +118,13 @@ pip install riva
 ### Install via bash script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sarkar-ai/riva/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sarkar-ai-taken/riva/main/install.sh | bash
 ```
 
 ### Install from source
 
 ```bash
-git clone https://github.com/sarkar-ai/riva.git
+git clone https://github.com/sarkar-ai-taken/riva.git
 cd riva
 pip install -e ".[test]"
 ```
@@ -376,7 +376,7 @@ New agent detectors can be added without changing the core.
 ### Setup
 
 ```bash
-git clone https://github.com/sarkar-ai/riva.git
+git clone https://github.com/sarkar-ai-taken/riva.git
 cd riva
 python -m venv .venv
 source .venv/bin/activate
@@ -437,7 +437,7 @@ pip uninstall riva
 Or use the uninstall script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sarkar-ai/riva/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sarkar-ai-taken/riva/main/uninstall.sh | bash
 ```
 
 ---
