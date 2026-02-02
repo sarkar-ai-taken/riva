@@ -17,6 +17,7 @@ from riva.tui.components import (
     build_agent_table,
     build_env_table,
     build_network_table,
+    build_orphan_panel,
     build_security_panel,
 )
 from riva.utils.formatting import format_number
@@ -79,9 +80,12 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
 
     # Body: agent table + detail cards + network + security + usage + env
     body = Layout()
+    orphans = monitor.orphans
+    orphan_size = min(len(orphans) + 4, 8) if orphans else 4
     body.split_column(
-        Layout(name="table", size=len(instances) + 6),
+        Layout(name="table", size=len(instances) + 7),
         Layout(name="details"),
+        Layout(name="orphans", size=orphan_size),
         Layout(name="network", size=8),
         Layout(name="security", size=6),
         Layout(name="usage", size=3),
@@ -111,6 +115,9 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
                 border_style="dim",
             )
         )
+
+    # Orphan processes panel
+    body["orphans"].update(build_orphan_panel(orphans))
 
     # Network connections panel
     body["network"].update(build_network_table(instances))

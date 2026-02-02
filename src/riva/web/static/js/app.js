@@ -43,6 +43,8 @@
 
   /* --- Polling --- */
   async function pollFast() {
+    // Skip polling when timeline replay is active
+    if (window.rivaTimeline && window.rivaTimeline.active) return;
     try {
       var fetches = [
         fetch('/api/agents'),
@@ -110,12 +112,16 @@
   }
 
   /* --- Audit Button --- */
-  window.runAudit = async function(includeNetwork) {
+  window.runAudit = async function(includeNetwork, clickedBtn) {
     var url = '/api/audit';
     if (includeNetwork) url += '?network=true';
+    var buttons = document.querySelectorAll('.audit-btn');
     try {
-      var btn = document.getElementById('btn-run-audit');
-      if (btn) btn.disabled = true;
+      buttons.forEach(function(b) {
+        b.disabled = true;
+        b.classList.remove('btn-primary');
+      });
+      if (clickedBtn) clickedBtn.classList.add('btn-primary');
       var res = await fetch(url);
       if (res.ok) {
         var data = await res.json();
@@ -124,8 +130,7 @@
     } catch (e) {
       // ignore
     } finally {
-      var btn = document.getElementById('btn-run-audit');
-      if (btn) btn.disabled = false;
+      buttons.forEach(function(b) { b.disabled = false; });
     }
   };
 

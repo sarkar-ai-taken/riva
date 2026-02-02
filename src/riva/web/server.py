@@ -119,6 +119,10 @@ def create_app(auth_token: str | None = None) -> Flask:
                 "uptime_seconds": round(inst.uptime_seconds, 1),
                 "uptime_formatted": format_uptime(inst.uptime_seconds),
                 "working_directory": inst.working_directory,
+                "parent_pid": inst.parent_pid,
+                "parent_name": inst.parent_name,
+                "launched_by": inst.launched_by,
+                "launcher": inst.extra.get("launcher"),
             })
         return jsonify({"agents": agents, "timestamp": time.time()})
 
@@ -292,6 +296,46 @@ def create_app(auth_token: str | None = None) -> Flask:
                 })
             return agents
         return jsonify({"agents": _cached("registry", _fetch)})
+
+    # ---- Orphan endpoint ---------------------------------------------------
+
+    @app.route("/api/orphans")
+    def api_orphans():
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"orphans": [], "error": "Storage not available"})
+        hours = float(request.args.get("hours", 24.0))
+        show_all = request.args.get("all", "false").lower() == "true"
+        orphans = storage.get_orphans(resolved=show_all, hours=hours)
+        return jsonify({"orphans": orphans, "timestamp": time.time()})
+
+    # ---- Timeline / Replay endpoints --------------------------------------
+
+    @app.route("/api/timeline")
+    def api_timeline():
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"buckets": [], "error": "Storage not available"})
+        hours = float(request.args.get("hours", 1.0))
+        bucket = int(request.args.get("bucket", 60))
+        buckets = storage.get_timeline_summary(hours=hours, bucket_seconds=bucket)
+        return jsonify({"buckets": buckets, "timestamp": time.time()})
+
+    @app.route("/api/replay")
+    def api_replay():
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"state": [], "error": "Storage not available"})
+        t = request.args.get("t")
+        if t is None:
+            return jsonify({"state": [], "error": "Missing 't' parameter (unix timestamp)"}), 400
+        try:
+            ts = float(t)
+        except ValueError:
+            return jsonify({"state": [], "error": "Invalid timestamp"}), 400
+        state = storage.get_state_at(ts)
+        orphans = storage.get_orphans(resolved=False, hours=24.0)
+        return jsonify({"state": state, "orphans": orphans, "timestamp": ts})
 
     @app.route("/api/config")
     def api_config():

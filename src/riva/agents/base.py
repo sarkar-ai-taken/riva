@@ -40,6 +40,9 @@ class AgentInstance:
     api_domain: str | None = None
     usage_stats: UsageStats | None = None
     extra: dict = field(default_factory=dict)
+    parent_pid: int | None = None
+    parent_name: str | None = None
+    launched_by: str | None = None
 
 
 # Secret key names filtered out of parsed configs
@@ -114,6 +117,9 @@ class AgentDetector(ABC):
         working_directory: str | None = None,
         command_line: list[str] | None = None,
         extra: dict | None = None,
+        parent_pid: int | None = None,
+        parent_name: str | None = None,
+        launched_by: str | None = None,
     ) -> AgentInstance:
         """Build an AgentInstance with common fields filled in."""
         binary_path = None
@@ -140,6 +146,9 @@ class AgentDetector(ABC):
             command_line=command_line or [],
             api_domain=self.api_domain,
             extra=extra or {},
+            parent_pid=parent_pid,
+            parent_name=parent_name,
+            launched_by=launched_by,
         )
 
     # --- Helpers available to subclasses -----------------------------------

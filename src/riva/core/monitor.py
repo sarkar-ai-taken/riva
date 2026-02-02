@@ -20,6 +20,9 @@ class ResourceSnapshot:
     cpu_percent: float
     memory_mb: float
     connection_count: int = 0
+    tree_cpu_percent: float = 0.0
+    tree_memory_mb: float = 0.0
+    child_count: int = 0
 
 
 @dataclass
@@ -59,10 +62,18 @@ class ResourceMonitor:
 
         self._instances: list[AgentInstance] = []
         self._histories: dict[str, AgentHistory] = {}
+        self._orphans: list = []
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._poll_count = 0
+
+        # Child process tree collector
+        try:
+            from riva.core.children import ProcessTreeCollector
+            self._tree_collector = ProcessTreeCollector()
+        except Exception:
+            self._tree_collector = None
 
     @property
     def instances(self) -> list[AgentInstance]:
@@ -73,6 +84,11 @@ class ResourceMonitor:
     def histories(self) -> dict[str, AgentHistory]:
         with self._lock:
             return dict(self._histories)
+
+    @property
+    def orphans(self) -> list:
+        with self._lock:
+            return list(self._orphans)
 
     def _history_key(self, instance: AgentInstance) -> str:
         if instance.pid:
@@ -116,9 +132,64 @@ class ResourceMonitor:
         except Exception:
             pass
 
+        # Collect child process trees for running agents
+        trees = []
+        if self._tree_collector:
+            try:
+                current_pids: set[int] = set()
+                for inst in refreshed:
+                    if inst.status == AgentStatus.RUNNING and inst.pid:
+                        current_pids.add(inst.pid)
+                        tree = self._tree_collector.collect_tree(inst.pid, inst.name)
+                        trees.append(tree)
+                        inst.extra["process_tree"] = {
+                            "tree_cpu_percent": tree.tree_cpu_percent,
+                            "tree_memory_mb": tree.tree_memory_mb,
+                            "child_count": tree.child_count,
+                            "children": [
+                                {
+                                    "pid": c.pid,
+                                    "ppid": c.ppid,
+                                    "name": c.name,
+                                    "exe": c.exe,
+                                    "cpu_percent": c.cpu_percent,
+                                    "memory_mb": round(c.memory_mb, 2),
+                                    "status": c.status,
+                                }
+                                for c in tree.children
+                            ],
+                        }
+
+                # Detect orphans
+                new_orphans = self._tree_collector.detect_orphans(current_pids)
+                self._tree_collector.update_tracking(trees)
+                self._tree_collector.cleanup_orphans()
+
+                # Persist orphans to storage
+                if self._storage is not None and new_orphans:
+                    for orphan in new_orphans:
+                        try:
+                            self._storage.record_orphan({
+                                "agent_name": orphan.agent_name,
+                                "original_parent_pid": orphan.original_parent_pid,
+                                "pid": orphan.pid,
+                                "name": orphan.name,
+                                "exe": orphan.exe,
+                                "detected_at": orphan.detected_at,
+                                "cpu_percent": orphan.cpu_percent,
+                                "memory_mb": orphan.memory_mb,
+                            })
+                        except Exception:
+                            pass
+            except Exception:
+                new_orphans = []
+        else:
+            new_orphans = []
+
         now = time.time()
         with self._lock:
             self._instances = refreshed
+            self._orphans = self._tree_collector.orphans if self._tree_collector else []
             for inst in refreshed:
                 if inst.status != AgentStatus.RUNNING:
                     continue
@@ -130,12 +201,16 @@ class ResourceMonitor:
                         snapshots=deque(maxlen=self._history_size),
                     )
                 conn_count = len(inst.extra.get("network", []))
+                tree_data = inst.extra.get("process_tree", {})
                 self._histories[key].snapshots.append(
                     ResourceSnapshot(
                         timestamp=now,
                         cpu_percent=inst.cpu_percent,
                         memory_mb=inst.memory_mb,
                         connection_count=conn_count,
+                        tree_cpu_percent=tree_data.get("tree_cpu_percent", 0.0),
+                        tree_memory_mb=tree_data.get("tree_memory_mb", 0.0),
+                        child_count=tree_data.get("child_count", 0),
                     )
                 )
 
@@ -146,6 +221,22 @@ class ResourceMonitor:
                     if inst.status == AgentStatus.RUNNING:
                         conn_count = len(inst.extra.get("network", []))
                         self._storage.record_snapshot(inst, connection_count=conn_count)
+                        # Persist child processes
+                        tree_data = inst.extra.get("process_tree", {})
+                        children = tree_data.get("children", [])
+                        if children and inst.pid:
+                            # Get the latest snapshot_id for this agent
+                            try:
+                                conn = self._storage._get_conn()
+                                row = conn.execute(
+                                    "SELECT id FROM snapshots ORDER BY id DESC LIMIT 1"
+                                ).fetchone()
+                                if row:
+                                    self._storage.record_child_processes(
+                                        row["id"], inst.pid, children
+                                    )
+                            except Exception:
+                                pass
             except Exception:
                 pass
 

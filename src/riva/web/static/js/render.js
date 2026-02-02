@@ -32,10 +32,13 @@ function renderDailyChart(daily, width, height) {
 function renderAgentTable(agents) {
   var wrap = document.getElementById('agent-table-wrap');
   if (!agents.length) { wrap.innerHTML = '<p class="empty-msg">No agents detected</p>'; return; }
-  var h = '<table id="tbl-agents"><thead><tr><th>Agent</th><th>Status</th><th>PID</th><th>CPU %</th><th>Memory</th><th>Uptime</th><th>Working Dir</th></tr></thead><tbody>';
+  var h = '<table id="tbl-agents"><thead><tr><th>Agent</th><th>Status</th><th>PID</th><th>CPU %</th><th>Memory</th><th>Launched By</th><th>Uptime</th><th>Working Dir</th></tr></thead><tbody>';
   agents.forEach(function(a) {
+    var launchType = (a.launcher && a.launcher.launch_type) || 'unknown';
+    var launchCls = 'launch-' + launchType;
     h += '<tr><td>' + esc(a.name) + '</td><td>' + statusBadge(a.status) + '</td><td>' + esc(a.pid) + '</td>' +
       '<td>' + a.cpu_percent.toFixed(1) + '</td><td>' + esc(a.memory_formatted) + '</td>' +
+      '<td><span class="' + launchCls + '">' + esc(a.launched_by || '-') + '</span></td>' +
       '<td>' + esc(a.uptime_formatted) + '</td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.working_directory) + '">' + esc(a.working_directory) + '</td></tr>';
   });
   h += '</tbody></table>';
@@ -56,8 +59,11 @@ function renderAgentCards(agents, histories) {
         '<div class="sparkline-container"><div class="sparkline-label">CPU %</div>' + renderSparklineSVG(hist.cpu_history, getColor('green'), 340, 40) + '</div>' +
         '<div class="sparkline-container"><div class="sparkline-label">Memory MB</div>' + renderSparklineSVG(hist.memory_history, getColor('accent'), 340, 40) + '</div>';
     }
+    var launchType = (a.launcher && a.launcher.launch_type) || 'unknown';
+    var launchCls = 'launch-' + launchType;
     return '<div class="card"><h3>' + esc(a.name) + ' ' + statusBadge(a.status) + '</h3>' +
       '<div class="card-row"><span class="label">PID</span><span class="value">' + esc(a.pid) + '</span></div>' +
+      '<div class="card-row"><span class="label">Launched By</span><span class="value ' + launchCls + '">' + esc(a.launched_by || '-') + '</span></div>' +
       '<div class="card-row"><span class="label">Binary</span><span class="value">' + esc(a.binary_path) + '</span></div>' +
       '<div class="card-row"><span class="label">API</span><span class="value">' + esc(a.api_domain) + '</span></div>' +
       '<div class="card-row"><span class="label">CPU</span><span class="value">' + a.cpu_percent.toFixed(1) + '%</span></div>' +
