@@ -41,10 +41,10 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sarkar-ai/riva"
-Repository = "https://github.com/sarkar-ai/riva"
-Issues = "https://github.com/sarkar-ai/riva/issues"
-Changelog = "https://github.com/sarkar-ai/riva/blob/main/HISTORY.md"
+Homepage = "https://github.com/sarkar-ai-taken/riva"
+Repository = "https://github.com/sarkar-ai-taken/riva"
+Issues = "https://github.com/sarkar-ai-taken/riva/issues"
+Changelog = "https://github.com/sarkar-ai-taken/riva/blob/main/HISTORY.md"
 
 [project.scripts]
 riva = "riva.cli:cli"

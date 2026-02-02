@@ -31,7 +31,7 @@ When reporting bugs, please include:
 ### Setup
 
 ```bash
-git clone https://github.com/sarkar-ai/riva.git
+git clone https://github.com/sarkar-ai-taken/riva.git
 cd riva
 python -m venv .venv
 source .venv/bin/activate
@@ -140,4 +140,4 @@ src/riva/
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/sarkar-ai/riva/discussions) or file an issue.
+Open a [GitHub Discussion](https://github.com/sarkar-ai-taken/riva/discussions) or file an issue.
