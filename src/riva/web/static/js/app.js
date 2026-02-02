@@ -1,0 +1,139 @@
+/* RIVA Dashboard — Tab Router & Polling Orchestration */
+
+(function() {
+  var connected = true;
+  var lastHistories = {};
+  var currentTab = 'overview';
+
+  /* --- Tab Router --- */
+  function initTabs() {
+    var buttons = document.querySelectorAll('.tab-btn');
+    buttons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var target = this.dataset.tab;
+        switchTab(target);
+      });
+    });
+  }
+
+  function switchTab(tabName) {
+    currentTab = tabName;
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function(panel) {
+      panel.classList.toggle('active', panel.id === 'tab-' + tabName);
+    });
+  }
+
+  /* --- Connection Status --- */
+  function setConnection(ok) {
+    connected = ok;
+    var cls = ok ? 'live' : 'offline';
+    var txt = ok ? 'Live' : 'Offline';
+    document.getElementById('conn-dot').className = 'status-dot ' + cls;
+    document.getElementById('conn-text').textContent = txt;
+    document.getElementById('conn-dot-footer').className = 'status-dot ' + cls;
+    document.getElementById('conn-text-footer').textContent = ok ? 'Connected' : 'Disconnected';
+  }
+
+  function updateTimestamp() {
+    document.getElementById('last-updated').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  }
+
+  /* --- Polling --- */
+  async function pollFast() {
+    try {
+      var fetches = [
+        fetch('/api/agents'),
+        fetch('/api/agents/history')
+      ];
+      // Also fetch network if on network tab
+      if (currentTab === 'network') {
+        fetches.push(fetch('/api/network'));
+      }
+
+      var responses = await Promise.all(fetches);
+      if (!responses[0].ok || !responses[1].ok) throw new Error('fetch failed');
+
+      var agentsData = await responses[0].json();
+      var histData = await responses[1].json();
+      lastHistories = histData.histories || {};
+
+      renderAgentTable(agentsData.agents || []);
+      renderAgentCards(agentsData.agents || [], lastHistories);
+
+      if (currentTab === 'network' && responses[2] && responses[2].ok) {
+        var netData = await responses[2].json();
+        renderNetworkTable(netData.network || []);
+      }
+
+      setConnection(true);
+      updateTimestamp();
+    } catch (e) {
+      setConnection(false);
+    }
+  }
+
+  async function pollSlow() {
+    try {
+      var fetches = [
+        fetch('/api/stats'),
+        fetch('/api/env'),
+        fetch('/api/registry'),
+        fetch('/api/config')
+      ];
+
+      var responses = await Promise.all(fetches);
+
+      if (responses[0].ok) { var d = await responses[0].json(); renderStatsTable(d.stats || []); renderStatsCards(d.stats || []); }
+      if (responses[1].ok) { var d = await responses[1].json(); renderEnvTable(d.env_vars || []); }
+      if (responses[2].ok) { var d = await responses[2].json(); renderRegistryTable(d.agents || []); }
+      if (responses[3].ok) { var d = await responses[3].json(); renderConfigs(d.configs || []); }
+
+      // Fetch historical data for usage tab
+      if (currentTab === 'usage') {
+        try {
+          var histRes = await fetch('/api/history?hours=1');
+          if (histRes.ok) {
+            var histData = await histRes.json();
+            renderHistoricalChart(histData.snapshots || []);
+          }
+        } catch (e) {}
+      }
+
+      setConnection(true);
+      updateTimestamp();
+    } catch (e) {
+      setConnection(false);
+    }
+  }
+
+  /* --- Audit Button --- */
+  window.runAudit = async function(includeNetwork) {
+    var url = '/api/audit';
+    if (includeNetwork) url += '?network=true';
+    try {
+      var btn = document.getElementById('btn-run-audit');
+      if (btn) btn.disabled = true;
+      var res = await fetch(url);
+      if (res.ok) {
+        var data = await res.json();
+        renderAuditDashboard(data.audit || []);
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      var btn = document.getElementById('btn-run-audit');
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  /* --- Init --- */
+  initTabs();
+  pollFast();
+  pollSlow();
+
+  setInterval(pollFast, 2000);
+  setInterval(pollSlow, 30000);
+})();

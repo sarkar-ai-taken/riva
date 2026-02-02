@@ -20,6 +20,7 @@ from riva.utils.formatting import format_mb, format_number, format_uptime
 
 _monitor: ResourceMonitor | None = None
 _registry: AgentRegistry | None = None
+_storage = None  # RivaStorage | None
 
 # Simple time-based cache for expensive endpoints
 _stats_cache: dict[str, tuple[float, object]] = {}
@@ -29,7 +30,7 @@ _CACHE_TTL = 30.0  # seconds
 def _get_monitor() -> ResourceMonitor:
     global _monitor
     if _monitor is None:
-        _monitor = ResourceMonitor()
+        _monitor = ResourceMonitor(storage=_storage)
     return _monitor
 
 
@@ -38,6 +39,17 @@ def _get_registry() -> AgentRegistry:
     if _registry is None:
         _registry = get_default_registry()
     return _registry
+
+
+def _get_storage():
+    global _storage
+    if _storage is None:
+        try:
+            from riva.core.storage import RivaStorage
+            _storage = RivaStorage()
+        except Exception:
+            pass
+    return _storage
 
 
 def _cached(key: str, fetch):
@@ -123,6 +135,76 @@ def create_app(auth_token: str | None = None) -> Flask:
                 "memory_history": hist.memory_history,
             }
         return jsonify({"histories": result})
+
+    # ---- Network endpoint -------------------------------------------------
+
+    @app.route("/api/network")
+    def api_network():
+        monitor = _get_monitor()
+        instances = monitor.instances
+        result = []
+        for inst in instances:
+            if inst.status != AgentStatus.RUNNING or not inst.pid:
+                continue
+            network = inst.extra.get("network", [])
+            result.append({
+                "agent": inst.name,
+                "pid": inst.pid,
+                "connection_count": len(network),
+                "connections": network,
+            })
+        return jsonify({"network": result, "timestamp": time.time()})
+
+    # ---- Audit endpoint ---------------------------------------------------
+
+    @app.route("/api/audit")
+    def api_audit():
+        def _fetch():
+            from riva.core.audit import run_audit
+            include_network = request.args.get("network", "false").lower() == "true"
+            results = run_audit(include_network=include_network)
+
+            # Persist to storage if available
+            storage = _get_storage()
+            if storage:
+                for r in results:
+                    try:
+                        storage.record_audit_event(r.check, r.status, r.detail, r.severity)
+                    except Exception:
+                        pass
+
+            return [
+                {
+                    "check": r.check,
+                    "status": r.status,
+                    "detail": r.detail,
+                    "severity": r.severity,
+                    "category": r.category,
+                }
+                for r in results
+            ]
+        return jsonify({"audit": _cached("audit", _fetch), "timestamp": time.time()})
+
+    # ---- History endpoints ------------------------------------------------
+
+    @app.route("/api/history")
+    def api_history():
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"snapshots": [], "error": "Storage not available"})
+        agent = request.args.get("agent")
+        hours = float(request.args.get("hours", 1.0))
+        snapshots = storage.get_snapshots(agent_name=agent, hours=hours)
+        return jsonify({"snapshots": snapshots})
+
+    @app.route("/api/network/history")
+    def api_network_history():
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"connections": [], "error": "Storage not available"})
+        hours = float(request.args.get("hours", 1.0))
+        connections = storage.get_network_history(hours=hours)
+        return jsonify({"connections": connections})
 
     # ---- Slow-poll endpoints (30s) ----------------------------------------
 
@@ -232,6 +314,9 @@ def create_app(auth_token: str | None = None) -> Flask:
 
 def run_server(host: str = "127.0.0.1", port: int = 8585, auth_token: str | None = None) -> None:
     """Create the app, start the monitor, and run Flask."""
+    # Initialize storage
+    _get_storage()
+
     monitor = _get_monitor()
     monitor.start()
     try:

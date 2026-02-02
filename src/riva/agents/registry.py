@@ -49,6 +49,11 @@ _BUILTIN_MODULES = [
     "riva.agents.langgraph",
     "riva.agents.crewai",
     "riva.agents.autogen",
+    "riva.agents.cursor",
+    "riva.agents.github_copilot",
+    "riva.agents.windsurf",
+    "riva.agents.continue_dev",
+    "riva.agents.cline",
 ]
 
 # Entry-point group that third-party packages can use in their pyproject.toml:
