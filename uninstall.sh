@@ -37,7 +37,7 @@ fi
 
 # Uninstall the Python package
 info "Uninstalling riva package..."
-python3 -m pip uninstall -y riva-agent 2>/dev/null || \
+python3 -m pip uninstall -y riva 2>/dev/null || \
     python3 -m pip uninstall -y riva 2>/dev/null || \
     warn "Package not found (may already be uninstalled)"
 

@@ -88,7 +88,7 @@ install_riva() {
         $PYTHON -m pip install -e ".[test]"
     else
         info "Installing from PyPI..."
-        $PYTHON -m pip install riva-agent
+        $PYTHON -m pip install riva
     fi
 
     # Verify the command is available
