@@ -25,6 +25,19 @@
   <button class="tab-btn" data-tab="config">Config</button>
 </nav>
 
+<!-- Timeline Bar -->
+<div class="timeline-bar" id="timeline-bar">
+  <div class="timeline-controls">
+    <button class="btn timeline-live-btn active" id="timeline-live-btn" title="Return to live view">Live</button>
+    <button class="btn timeline-play-btn" id="timeline-play-btn" title="Play/Pause">&#9654;</button>
+    <span class="timeline-label" id="timeline-label">Live</span>
+  </div>
+  <div class="timeline-track" id="timeline-track">
+    <div class="timeline-buckets" id="timeline-buckets"></div>
+    <input type="range" class="timeline-slider" id="timeline-slider" min="0" max="100" value="100">
+  </div>
+</div>
+
 <!-- ============================================================ -->
 <!-- Overview Tab -->
 <!-- ============================================================ -->
@@ -37,6 +50,11 @@
   <section id="sec-agent-cards">
     <h2>Agent Details</h2>
     <div class="card-grid" id="agent-cards"></div>
+  </section>
+
+  <section id="sec-orphans" style="display:none">
+    <h2>Orphan Processes</h2>
+    <div id="orphan-table-wrap"><p class="empty-msg">No orphan processes.</p></div>
   </section>
 </div>
 
@@ -63,8 +81,8 @@
   <section>
     <h2>Security Audit</h2>
     <div style="margin-bottom:16px;display:flex;gap:8px">
-      <button class="btn btn-primary" id="btn-run-audit" onclick="runAudit(false)">Run Audit</button>
-      <button class="btn" onclick="runAudit(true)">Run Audit (+ Network)</button>
+      <button class="btn btn-primary audit-btn" id="btn-audit-basic" onclick="runAudit(false, this)">Run Audit</button>
+      <button class="btn audit-btn" id="btn-audit-network" onclick="runAudit(true, this)">Run Audit (+ Network)</button>
     </div>
     <div id="audit-results-wrap"><p class="empty-msg">Click "Run Audit" to scan for security issues.</p></div>
   </section>
@@ -120,6 +138,7 @@
 
 <script src="/static/js/utils.js"></script>
 <script src="/static/js/render.js"></script>
+<script src="/static/js/timeline.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

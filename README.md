@@ -50,7 +50,7 @@ It **observes agent behavior** but does not execute agent actions.
 
 ## Highlights
 
-- **Agent discovery** — detect locally running agents across 7 frameworks and growing
+- **Agent discovery** — detect locally running agents across 13 frameworks and growing
 - **Lifecycle visibility** — see when agents start, stop, crash, or hang
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
@@ -75,6 +75,7 @@ Riva ships with built-in detectors for these agent frameworks:
 | [LangGraph](https://langchain-ai.github.io/langgraph/) | `langgraph` / Python | `~/.langgraph` | api.smith.langchain.com |
 | [CrewAI](https://www.crewai.com/) | `crewai` / Python | `~/.crewai` | app.crewai.com |
 | [AutoGen](https://microsoft.github.io/autogen/) | `autogen` / Python | `~/.autogen` | varies |
+| [OpenCode](https://opencode.ai/) | `opencode` | `~/.config/opencode` | varies |
 
 Python-based frameworks (LangGraph, CrewAI, AutoGen) are detected by matching `python` processes whose command line references the framework.
 
@@ -191,10 +192,19 @@ riva audit --json      # JSON output
 ```
 
 Checks performed:
-- API key exposure in environment variables
-- Config directory permissions (group/other-readable)
-- Web dashboard status and bind address
+- API key / secret exposure in environment variables
+- Config directory and file permissions (group/other-accessible)
+- Web dashboard bind address and status
 - Plugin directory existence and permissions
+- MCP server configs — HTTP endpoints, shell commands, temp-dir references
+- Plaintext token scanning across all agent config files
+- Agent processes running as root (UID 0)
+- Agent binary writability (group/world-writable binaries)
+- Suspicious launcher detection (unknown or script-interpreter parents)
+- Orphan process detection
+- Network checks (with `--network`): unencrypted connections, unknown destinations, excessive connections, stale sessions
+
+See [Security Audit Details](#security-audit-details) for the full list and rationale.
 
 ---
 
@@ -262,10 +272,65 @@ All responses include:
 - Non-localhost binding triggers a visible warning
 - Optional bearer token auth for the web API
 - Security headers on all HTTP responses
-- `riva audit` checks for common misconfigurations
+- `riva audit` performs 15+ automated security checks (see below)
 - No agent execution privileges — read-only observation
 
 See [SECURITY.md](SECURITY.md) for the full security policy.
+
+### Security Audit Details
+
+`riva audit` runs a comprehensive set of checks designed to catch real-world threats to local AI agent deployments. Each check below links to supporting evidence for why it matters.
+
+#### Credential & Token Exposure
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **API Key Exposure** | Scans environment variables for keys, tokens, and secrets | [GitHub found 39M+ leaked secrets in 2024 alone](https://github.blog/security/secret-scanning/next-evolution-github-secret-scanning/) |
+| **Plaintext Token Scan** | Scans agent config files for 14 token patterns (`sk-`, `ghp_`, `AKIA`, `AIza`, `sk-ant-`, `eyJ`, `hf_`, `gsk_`, etc.) | API keys stored in plaintext config files are a top credential exposure vector ([OWASP A07:2021](https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/)) |
+
+Covered config files per agent: `settings.json`, `config.json`, `mcp.json`, `.env`, `config.toml` (Codex CLI), `config.ts` (Continue.dev), `OAI_CONFIG_LIST` (AutoGen), `langgraph.json` (LangGraph), `mcp_config.json` (Windsurf). Also scans VS Code extension directories (Cline, Copilot, Continue) and macOS Application Support paths.
+
+#### Permissions
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **Config Directory Permissions** | Flags config dirs readable by group/other | Other local users or malware can read API keys and session data |
+| **Config File Permissions** | Checks individual config files for `mode & 0o077` | Per-file permission hardening — a directory can be safe while files inside are over-permissioned |
+| **Binary Permissions** | Flags agent binaries that are group/world-writable | A writable binary can be [replaced with a trojan](https://attack.mitre.org/techniques/T1574/010/) — classic binary planting |
+| **Plugin Directory** | Flags existence and permissions of `~/.config/riva/plugins/` | Plugin directories are arbitrary code execution surfaces |
+
+#### Process Safety
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **Running as Root** | Flags agent processes with UID 0 | AI agents should follow [principle of least privilege](https://csrc.nist.gov/glossary/term/least_privilege) — root agents can access any file or process |
+| **Suspicious Launcher** | Flags unknown launch types or script-interpreter parents (`python`, `node`) | Unexpected parent processes may indicate [process injection](https://attack.mitre.org/techniques/T1055/) or unauthorized agent execution |
+| **Orphan Processes** | Detects agent child processes whose parent has died | Orphaned agent processes continue consuming resources and may hold open API connections |
+
+#### MCP (Model Context Protocol) Supply Chain
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **MCP HTTP Endpoints** | Flags MCP servers using `http://` instead of `https://` | Unencrypted MCP connections expose tool calls and responses to network sniffing ([Invariant Labs MCP security research](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)) |
+| **MCP Shell Commands** | Flags MCP servers whose stdio command is `bash`, `sh`, `cmd`, etc. | Shell-based MCP servers enable [arbitrary command execution](https://www.pillar.security/blog/the-model-context-protocol-and-the-risks-of-tool-poisoning) via prompt injection |
+| **MCP Temp Dir References** | Flags MCP server commands or args referencing `/tmp/` | Temp directories are world-writable — MCP binaries there can be [swapped by any local user](https://attack.mitre.org/techniques/T1036/) |
+
+Scans 6 well-known MCP config paths plus dynamically discovered `mcp.json`/`mcp_config.json` in every installed agent's config directory.
+
+#### Network (with `--network` flag)
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **Unencrypted Connections** | Flags connections to known API domains on non-443 ports | API traffic should always be TLS-encrypted |
+| **Unknown Destinations** | Flags ESTABLISHED connections to unrecognized hosts | May indicate data exfiltration or unauthorized API calls |
+| **Excessive Connections** | Flags agents with >50 active connections | Possible connection leak or [C2 beaconing](https://attack.mitre.org/techniques/T1071/) |
+| **Stale Sessions** | Flags CLOSE_WAIT/TIME_WAIT connections | Connection cleanup failures waste resources and may indicate issues |
+
+#### Dashboard
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **Dashboard Status** | Warns when the web dashboard is running | A running dashboard is an attack surface — verify it's not exposed to the network |
 
 ---
 

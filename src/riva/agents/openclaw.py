@@ -27,7 +27,16 @@ class OpenClawDetector(AgentDetector):
         return "varies"
 
     def match_process(self, name: str, cmdline: list[str], exe: str) -> bool:
-        return self._match_by_name(name, cmdline, exe)
+        if self._match_by_name(name, cmdline, exe):
+            return True
+        # OpenClaw runs as Node.js with cmdline args like "openclaw-gateway",
+        # "openclaw-tui", etc.  Match any process whose first cmdline arg
+        # starts with one of the known binary names.
+        if cmdline:
+            arg0 = cmdline[0].rsplit("/", 1)[-1]
+            if any(arg0.startswith(b) for b in self.binary_names):
+                return True
+        return False
 
     def parse_config(self) -> dict:
         config: dict = {}

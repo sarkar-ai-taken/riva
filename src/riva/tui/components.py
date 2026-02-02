@@ -56,6 +56,8 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
     table.add_column("PID", justify="right", min_width=7)
     table.add_column("CPU %", justify="right", min_width=7)
     table.add_column("Memory", justify="right", min_width=10)
+    table.add_column("Children", justify="right", min_width=9)
+    table.add_column("Launched By", min_width=16)
     table.add_column("Uptime", min_width=10)
     table.add_column("Working Dir", max_width=40, no_wrap=True)
 
@@ -66,15 +68,19 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
         cpu_str = f"{inst.cpu_percent:.1f}" if inst.status == AgentStatus.RUNNING else "-"
         mem_str = format_mb(inst.memory_mb) if inst.status == AgentStatus.RUNNING else "-"
         uptime_str = format_uptime(inst.uptime_seconds) if inst.status == AgentStatus.RUNNING else "-"
+        tree_data = inst.extra.get("process_tree", {})
+        child_count = tree_data.get("child_count", 0)
+        children_str = str(child_count) if inst.status == AgentStatus.RUNNING else "-"
+        launched_by_str = inst.launched_by or "-"
         cwd = inst.working_directory or "-"
         # Truncate long paths
         if len(cwd) > 40:
             cwd = "…" + cwd[-(39):]
 
-        table.add_row(inst.name, status_text, pid_str, cpu_str, mem_str, uptime_str, cwd)
+        table.add_row(inst.name, status_text, pid_str, cpu_str, mem_str, children_str, launched_by_str, uptime_str, cwd)
 
     if not instances:
-        table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "")
+        table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "", "", "")
 
     return table
 
@@ -85,6 +91,10 @@ def build_agent_card(instance: AgentInstance, history: AgentHistory | None = Non
     style, icon = STATUS_STYLES.get(instance.status, ("dim", "?"))
 
     lines.append(f"[bold]PID:[/bold] {instance.pid or 'N/A'}")
+    if instance.launched_by:
+        lines.append(f"[bold]Launched by:[/bold] {instance.launched_by}")
+    if instance.parent_pid:
+        lines.append(f"[bold]Parent PID:[/bold] {instance.parent_pid}")
     lines.append(f"[bold]Binary:[/bold] {instance.binary_path or 'N/A'}")
     lines.append(f"[bold]API:[/bold] {instance.api_domain or 'N/A'}")
 
@@ -92,6 +102,14 @@ def build_agent_card(instance: AgentInstance, history: AgentHistory | None = Non
         lines.append(f"[bold]CPU:[/bold] {instance.cpu_percent:.1f}%")
         lines.append(f"[bold]Memory:[/bold] {format_mb(instance.memory_mb)}")
         lines.append(f"[bold]Uptime:[/bold] {format_uptime(instance.uptime_seconds)}")
+
+        tree_data = instance.extra.get("process_tree", {})
+        if tree_data.get("child_count", 0) > 0:
+            lines.append(
+                f"[bold]Children:[/bold] {tree_data['child_count']}  "
+                f"[bold]Tree CPU:[/bold] {tree_data.get('tree_cpu_percent', 0):.1f}%  "
+                f"[bold]Tree Mem:[/bold] {format_mb(tree_data.get('tree_memory_mb', 0))}"
+            )
 
         if history:
             cpu_spark = sparkline(history.cpu_history)
@@ -286,6 +304,37 @@ def build_network_table(instances: list[AgentInstance]) -> Table:
         table.add_row("[dim]No network connections[/dim]", "", "", "", "", "")
 
     return table
+
+
+def build_orphan_panel(orphans: list | None = None) -> Panel:
+    """Build a panel showing orphan processes."""
+    if not orphans:
+        return Panel(
+            "[dim]No orphan processes detected.[/dim]",
+            title="Orphan Processes",
+            title_align="left",
+            border_style="dim",
+            expand=True,
+        )
+
+    lines: list[str] = []
+    lines.append(f"[bold yellow]{len(orphans)} orphan process(es)[/bold yellow]")
+    for o in orphans[:10]:
+        name = getattr(o, "name", "") or "?"
+        pid = getattr(o, "pid", "?")
+        agent = getattr(o, "agent_name", "?")
+        lines.append(f"  PID {pid} ({name}) — from {agent}")
+    if len(orphans) > 10:
+        lines.append(f"  [dim]... and {len(orphans) - 10} more[/dim]")
+
+    content = "\n".join(lines)
+    return Panel(
+        content,
+        title="Orphan Processes",
+        title_align="left",
+        border_style="yellow",
+        expand=True,
+    )
 
 
 def build_security_panel(audit_results: list | None = None) -> Panel:

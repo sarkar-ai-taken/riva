@@ -20,13 +20,25 @@ from riva.tui.components import (
 )
 
 
+def _get_version() -> str:
+    """Read version from package metadata."""
+    from importlib.metadata import version
+
+    return version("riva")
+
+
 @click.group(invoke_without_command=True)
+@click.option("--version", is_flag=True, help="Show version and exit.")
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, version: bool) -> None:
     """Riva - AI Agent Task Manager.
 
     Discover and monitor AI coding agents running on your machine.
     """
+    if version:
+        click.echo(f"riva {_get_version()}")
+        ctx.exit()
+        return
     if ctx.invoked_subcommand is None:
         ctx.invoke(watch)
 
@@ -463,6 +475,233 @@ def web_logs(follow: bool, lines: int) -> None:
                         time.sleep(0.3)
         except KeyboardInterrupt:
             pass
+
+
+@cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def children(as_json: bool) -> None:
+    """Show child process trees for running agents."""
+    from riva.core.children import ProcessTreeCollector
+
+    monitor = ResourceMonitor()
+    instances = monitor.scan_once()
+    collector = ProcessTreeCollector()
+
+    trees = []
+    for inst in instances:
+        if inst.status == AgentStatus.RUNNING and inst.pid:
+            tree = collector.collect_tree(inst.pid, inst.name)
+            trees.append(tree)
+
+    if as_json:
+        output = []
+        for tree in trees:
+            output.append({
+                "agent_name": tree.agent_name,
+                "parent_pid": tree.parent_pid,
+                "child_count": tree.child_count,
+                "tree_cpu_percent": tree.tree_cpu_percent,
+                "tree_memory_mb": tree.tree_memory_mb,
+                "children": [
+                    {
+                        "pid": c.pid,
+                        "ppid": c.ppid,
+                        "name": c.name,
+                        "exe": c.exe,
+                        "cpu_percent": c.cpu_percent,
+                        "memory_mb": round(c.memory_mb, 2),
+                        "status": c.status,
+                    }
+                    for c in tree.children
+                ],
+            })
+        click.echo(json.dumps(output, indent=2))
+    else:
+        console = Console()
+        if not trees:
+            console.print("\n[dim]No running agents with child processes.[/dim]\n")
+            return
+
+        for tree in trees:
+            table = Table(
+                title=f"{tree.agent_name} (PID {tree.parent_pid}) — {tree.child_count} children, CPU {tree.tree_cpu_percent}%, Mem {tree.tree_memory_mb:.1f} MB",
+                expand=True,
+                title_style="bold cyan",
+                border_style="bright_blue",
+            )
+            table.add_column("PID", justify="right", min_width=7)
+            table.add_column("PPID", justify="right", min_width=7)
+            table.add_column("Name", min_width=15)
+            table.add_column("CPU %", justify="right", min_width=7)
+            table.add_column("Memory MB", justify="right", min_width=10)
+            table.add_column("Status", min_width=10)
+
+            for c in tree.children:
+                table.add_row(
+                    str(c.pid),
+                    str(c.ppid),
+                    c.name,
+                    f"{c.cpu_percent:.1f}",
+                    f"{c.memory_mb:.1f}",
+                    c.status,
+                )
+
+            if not tree.children:
+                table.add_row("[dim]No child processes[/dim]", "", "", "", "", "")
+
+            console.print()
+            console.print(table)
+        console.print()
+
+
+@cli.command()
+@click.option("--hours", default=24.0, type=float, help="Hours of history to show.")
+@click.option("--all", "show_all", is_flag=True, help="Include resolved orphans.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def orphans(hours: float, show_all: bool, as_json: bool) -> None:
+    """Show orphan processes from storage."""
+    from riva.core.storage import RivaStorage
+
+    storage = RivaStorage()
+    try:
+        orphan_list = storage.get_orphans(resolved=show_all, hours=hours)
+
+        if as_json:
+            click.echo(json.dumps(orphan_list, indent=2))
+        else:
+            console = Console()
+            if not orphan_list:
+                console.print(f"\n[dim]No orphan processes in the last {hours} hour(s).[/dim]\n")
+                return
+
+            table = Table(
+                title=f"Orphan Processes (last {hours}h)",
+                expand=True,
+                title_style="bold cyan",
+                border_style="bright_blue",
+            )
+            table.add_column("Agent", style="bold white", min_width=14)
+            table.add_column("Orphan PID", justify="right", min_width=10)
+            table.add_column("Name", min_width=15)
+            table.add_column("Original Parent", justify="right", min_width=14)
+            table.add_column("CPU %", justify="right", min_width=7)
+            table.add_column("Memory MB", justify="right", min_width=10)
+            table.add_column("Detected", min_width=20)
+            table.add_column("Resolved", min_width=20)
+
+            import datetime
+            for o in orphan_list:
+                detected = datetime.datetime.fromtimestamp(o["detected_at"]).strftime("%Y-%m-%d %H:%M:%S")
+                resolved = (
+                    datetime.datetime.fromtimestamp(o["resolved_at"]).strftime("%Y-%m-%d %H:%M:%S")
+                    if o.get("resolved_at")
+                    else "[yellow]Active[/yellow]"
+                )
+                table.add_row(
+                    o.get("agent_name", "?"),
+                    str(o.get("orphan_pid", "?")),
+                    o.get("orphan_name", "?"),
+                    str(o.get("original_parent_pid", "?")),
+                    f"{o.get('cpu_percent', 0):.1f}",
+                    f"{o.get('memory_mb', 0):.1f}",
+                    detected,
+                    resolved,
+                )
+
+            console.print()
+            console.print(table)
+            console.print()
+    finally:
+        storage.close()
+
+
+@cli.command()
+@click.option("--at", "at_time", default=None, help='Show state at specific time (e.g. "2024-01-15 14:30:00").')
+@click.option("--hours", default=1.0, type=float, help="Time window for available snapshots.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def replay(at_time: str | None, hours: float, as_json: bool) -> None:
+    """Time-travel replay of agent states."""
+    import datetime
+
+    from riva.core.storage import RivaStorage
+
+    storage = RivaStorage()
+    try:
+        if at_time:
+            # Parse the timestamp
+            try:
+                dt = datetime.datetime.strptime(at_time, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                try:
+                    dt = datetime.datetime.strptime(at_time, "%Y-%m-%d %H:%M")
+                except ValueError:
+                    click.echo(f"Error: Cannot parse time '{at_time}'. Use format: YYYY-MM-DD HH:MM[:SS]")
+                    return
+            ts = dt.timestamp()
+
+            state = storage.get_state_at(ts)
+            if as_json:
+                click.echo(json.dumps(state, indent=2))
+            else:
+                console = Console()
+                if not state:
+                    console.print(f"\n[dim]No agent state found at {at_time}.[/dim]\n")
+                    return
+
+                console.print(f"\n[bold cyan]Agent State at {at_time}[/bold cyan]\n")
+
+                table = Table(expand=True, border_style="bright_blue")
+                table.add_column("Agent", style="bold white", min_width=14)
+                table.add_column("PID", justify="right", min_width=7)
+                table.add_column("CPU %", justify="right", min_width=7)
+                table.add_column("Memory MB", justify="right", min_width=10)
+                table.add_column("Connections", justify="right", min_width=11)
+                table.add_column("Children", justify="right", min_width=9)
+                table.add_column("Tree CPU %", justify="right", min_width=10)
+                table.add_column("Tree Mem MB", justify="right", min_width=11)
+                table.add_column("Status", min_width=10)
+
+                for s in state:
+                    table.add_row(
+                        s.get("agent_name", "?"),
+                        str(s.get("pid", "—")),
+                        f"{s.get('cpu_percent', 0):.1f}",
+                        f"{s.get('memory_mb', 0):.1f}",
+                        str(s.get("connection_count", 0)),
+                        str(s.get("child_count", 0)),
+                        f"{s.get('tree_cpu_percent', 0):.1f}",
+                        f"{s.get('tree_memory_mb', 0):.1f}",
+                        s.get("status", "—"),
+                    )
+
+                console.print(table)
+                console.print()
+        else:
+            # Show available time ranges
+            timestamps = storage.get_snapshot_timestamps(hours=hours)
+            if as_json:
+                click.echo(json.dumps({
+                    "snapshot_count": len(timestamps),
+                    "hours": hours,
+                    "earliest": timestamps[0] if timestamps else None,
+                    "latest": timestamps[-1] if timestamps else None,
+                    "timestamps": timestamps,
+                }, indent=2))
+            else:
+                console = Console()
+                if not timestamps:
+                    console.print(f"\n[dim]No snapshots in the last {hours} hour(s).[/dim]\n")
+                    return
+
+                earliest = datetime.datetime.fromtimestamp(timestamps[0]).strftime("%Y-%m-%d %H:%M:%S")
+                latest = datetime.datetime.fromtimestamp(timestamps[-1]).strftime("%Y-%m-%d %H:%M:%S")
+                console.print(f"\n[bold cyan]Available Replay Data[/bold cyan]")
+                console.print(f"  Snapshots: {len(timestamps)}")
+                console.print(f"  Earliest:  {earliest}")
+                console.print(f"  Latest:    {latest}")
+                console.print(f"\n  Use [bold]riva replay --at \"{earliest}\"[/bold] to view state at that time.\n")
+    finally:
+        storage.close()
 
 
 @cli.command()
