@@ -111,7 +111,7 @@ It makes **agent behavior visible**.
 ### Install from PyPI
 
 ```bash
-pip install riva-agent
+pip install riva
 ```
 
 ### Install via bash script
@@ -366,7 +366,7 @@ twine upload dist/*
 ## Uninstall
 
 ```bash
-pip uninstall riva-agent
+pip uninstall riva
 ```
 
 Or use the uninstall script:
