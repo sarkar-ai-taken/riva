@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RIVA — AI Agent Task Manager</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-hover: #1c2129;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #d18616;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif, 'Apple Color Emoji';
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  header h1 { font-size: 20px; font-weight: 600; color: var(--accent); }
+  header h1 span { color: var(--text-dim); font-weight: 400; font-size: 14px; }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.live { background: var(--green); }
+  .status-dot.offline { background: var(--red); }
+  .connection-status { display: flex; align-items: center; color: var(--text-dim); font-size: 13px; }
+
+  section { margin-bottom: 32px; }
+  section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--bg);
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-hover); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-running { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge-installed { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge-not_found { background: rgba(139,148,158,0.15); color: var(--text-dim); }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .card-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 13px;
+  }
+  .card-row .label { color: var(--text-dim); }
+  .card-row .value { color: var(--text); font-family: monospace; }
+  .sparkline-container { margin-top: 10px; }
+  .sparkline-label { font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+
+  svg.sparkline { display: block; }
+
+  .bar-chart { margin-top: 8px; }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .bar-label { width: 120px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; height: 16px; background: var(--bg); border-radius: 3px; margin: 0 8px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s ease; }
+  .bar-count { width: 40px; text-align: right; color: var(--text-dim); font-family: monospace; }
+
+  .accordion { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-card); }
+  .accordion + .accordion { margin-top: 8px; }
+  .accordion-header {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 13px;
+    user-select: none;
+  }
+  .accordion-header:hover { background: var(--bg-hover); }
+  .accordion-arrow { transition: transform 0.2s; font-size: 12px; color: var(--text-dim); }
+  .accordion.open .accordion-arrow { transform: rotate(90deg); }
+  .accordion-body { display: none; padding: 0 14px 14px; }
+  .accordion.open .accordion-body { display: block; }
+
+  .empty-msg { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
+
+  footer {
+    margin-top: 32px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RIVA <span>AI Agent Task Manager</span></h1>
+  <div class="connection-status" id="conn-header">
+    <span class="status-dot live" id="conn-dot"></span>
+    <span id="conn-text">Live</span>
+  </div>
+</header>
+
+<!-- Agent Overview Table -->
+<section id="sec-agents">
+  <h2>Agent Overview</h2>
+  <div id="agent-table-wrap"><p class="empty-msg">Loading...</p></div>
+</section>
+
+<!-- Agent Detail Cards -->
+<section id="sec-agent-cards">
+  <h2>Agent Details</h2>
+  <div class="card-grid" id="agent-cards"></div>
+</section>
+
+<!-- Usage Statistics Table -->
+<section id="sec-stats">
+  <h2>Usage Statistics</h2>
+  <div id="stats-table-wrap"><p class="empty-msg">Loading...</p></div>
+</section>
+
+<!-- Usage Detail Cards -->
+<section id="sec-stats-cards">
+  <h2>Usage Details</h2>
+  <div class="card-grid" id="stats-cards"></div>
+</section>
+
+<!-- Environment Variables -->
+<section id="sec-env">
+  <h2>Environment Variables</h2>
+  <div id="env-table-wrap"><p class="empty-msg">Loading...</p></div>
+</section>
+
+<!-- Agent Registry -->
+<section id="sec-registry">
+  <h2>Agent Registry</h2>
+  <div id="registry-table-wrap"><p class="empty-msg">Loading...</p></div>
+</section>
+
+<!-- Agent Configurations -->
+<section id="sec-config">
+  <h2>Agent Configurations</h2>
+  <div id="config-wrap"><p class="empty-msg">Loading...</p></div>
+</section>
+
+<footer>
+  <div class="connection-status">
+    <span class="status-dot live" id="conn-dot-footer"></span>
+    <span id="conn-text-footer">Connected</span>
+  </div>
+  <div id="last-updated">Last updated: —</div>
+</footer>
+
+<script>
+(function() {
+  let connected = true;
+
+  // --- Helpers ---
+  function statusBadge(status) {
+    const cls = 'badge badge-' + status;
+    const label = status.replace('_', ' ');
+    return '<span class="' + cls + '">' + label + '</span>';
+  }
+
+  function esc(s) {
+    if (s == null) return '—';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function renderSparklineSVG(values, color, width, height) {
+    if (!values || values.length < 2) return '';
+    const max = Math.max(...values, 0.1);
+    const step = width / (values.length - 1);
+    const points = values.map((v, i) => {
+      const x = (i * step).toFixed(1);
+      const y = (height - (v / max) * (height - 4) - 2).toFixed(1);
+      return x + ',' + y;
+    }).join(' ');
+    return '<svg class="sparkline" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+      '<polyline fill="none" stroke="' + color + '" stroke-width="1.5" points="' + points + '"/>' +
+      '</svg>';
+  }
+
+  function renderToolBars(tools, maxCount) {
+    if (!tools || !tools.length) return '<p class="empty-msg">No tool data</p>';
+    const mc = maxCount || Math.max(...tools.map(t => t.call_count), 1);
+    return '<div class="bar-chart">' + tools.slice(0, 10).map(t => {
+      const pct = (t.call_count / mc * 100).toFixed(1);
+      return '<div class="bar-row">' +
+        '<span class="bar-label" title="' + esc(t.tool_name) + '">' + esc(t.tool_name) + '</span>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<span class="bar-count">' + t.call_count + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  function renderDailyChart(daily, width, height) {
+    if (!daily || daily.length < 2) return '';
+    const maxT = Math.max(...daily.map(d => d.total_tokens), 1);
+    const step = width / (daily.length - 1);
+    const points = daily.map((d, i) => {
+      const x = (i * step).toFixed(1);
+      const y = (height - (d.total_tokens / maxT) * (height - 4) - 2).toFixed(1);
+      return x + ',' + y;
+    }).join(' ');
+    return '<div class="sparkline-container">' +
+      '<div class="sparkline-label">Daily Tokens</div>' +
+      '<svg class="sparkline" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+      '<polyline fill="none" stroke="' + getComputedStyle(document.documentElement).getPropertyValue('--purple').trim() + '" stroke-width="1.5" points="' + points + '"/>' +
+      '</svg></div>';
+  }
+
+  function setConnection(ok) {
+    connected = ok;
+    const cls = ok ? 'live' : 'offline';
+    const txt = ok ? 'Live' : 'Offline';
+    document.getElementById('conn-dot').className = 'status-dot ' + cls;
+    document.getElementById('conn-text').textContent = txt;
+    document.getElementById('conn-dot-footer').className = 'status-dot ' + cls;
+    document.getElementById('conn-text-footer').textContent = ok ? 'Connected' : 'Disconnected';
+  }
+
+  function updateTimestamp() {
+    document.getElementById('last-updated').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  }
+
+  // --- Renderers ---
+  function renderAgentTable(agents) {
+    const wrap = document.getElementById('agent-table-wrap');
+    if (!agents.length) { wrap.innerHTML = '<p class="empty-msg">No agents detected</p>'; return; }
+    let h = '<table><thead><tr><th>Agent</th><th>Status</th><th>PID</th><th>CPU %</th><th>Memory</th><th>Uptime</th><th>Working Dir</th></tr></thead><tbody>';
+    agents.forEach(a => {
+      h += '<tr><td>' + esc(a.name) + '</td><td>' + statusBadge(a.status) + '</td><td>' + esc(a.pid) + '</td>' +
+        '<td>' + a.cpu_percent.toFixed(1) + '</td><td>' + esc(a.memory_formatted) + '</td>' +
+        '<td>' + esc(a.uptime_formatted) + '</td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.working_directory) + '">' + esc(a.working_directory) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    wrap.innerHTML = h;
+  }
+
+  function renderAgentCards(agents, histories) {
+    const el = document.getElementById('agent-cards');
+    const running = agents.filter(a => a.status === 'running');
+    if (!running.length) { el.innerHTML = '<p class="empty-msg">No running agents</p>'; return; }
+    el.innerHTML = running.map(a => {
+      const key = a.name + ':' + a.pid;
+      const hist = (histories || {})[key];
+      let sparkHtml = '';
+      if (hist) {
+        sparkHtml =
+          '<div class="sparkline-container"><div class="sparkline-label">CPU %</div>' + renderSparklineSVG(hist.cpu_history, getComputedStyle(document.documentElement).getPropertyValue('--green').trim(), 340, 40) + '</div>' +
+          '<div class="sparkline-container"><div class="sparkline-label">Memory MB</div>' + renderSparklineSVG(hist.memory_history, getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), 340, 40) + '</div>';
+      }
+      return '<div class="card"><h3>' + esc(a.name) + ' ' + statusBadge(a.status) + '</h3>' +
+        '<div class="card-row"><span class="label">PID</span><span class="value">' + esc(a.pid) + '</span></div>' +
+        '<div class="card-row"><span class="label">Binary</span><span class="value">' + esc(a.binary_path) + '</span></div>' +
+        '<div class="card-row"><span class="label">API</span><span class="value">' + esc(a.api_domain) + '</span></div>' +
+        '<div class="card-row"><span class="label">CPU</span><span class="value">' + a.cpu_percent.toFixed(1) + '%</span></div>' +
+        '<div class="card-row"><span class="label">Memory</span><span class="value">' + esc(a.memory_formatted) + '</span></div>' +
+        '<div class="card-row"><span class="label">Uptime</span><span class="value">' + esc(a.uptime_formatted) + '</span></div>' +
+        sparkHtml + '</div>';
+    }).join('');
+  }
+
+  function renderStatsTable(stats) {
+    const wrap = document.getElementById('stats-table-wrap');
+    if (!stats.length) { wrap.innerHTML = '<p class="empty-msg">No usage data</p>'; return; }
+    let h = '<table><thead><tr><th>Agent</th><th>Status</th><th>Total Tokens</th><th>Sessions</th><th>Messages</th><th>Tool Calls</th><th>Period</th></tr></thead><tbody>';
+    stats.forEach(s => {
+      const period = (s.time_range_start && s.time_range_end) ? esc(s.time_range_start) + ' — ' + esc(s.time_range_end) : '—';
+      h += '<tr><td>' + esc(s.name) + '</td><td>' + statusBadge(s.status) + '</td>' +
+        '<td>' + esc(s.total_tokens_formatted) + '</td><td>' + s.total_sessions + '</td>' +
+        '<td>' + s.total_messages + '</td><td>' + s.total_tool_calls + '</td><td>' + period + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    wrap.innerHTML = h;
+  }
+
+  function renderStatsCards(stats) {
+    const el = document.getElementById('stats-cards');
+    const withData = stats.filter(s => s.total_tokens > 0);
+    if (!withData.length) { el.innerHTML = '<p class="empty-msg">No detailed usage data</p>'; return; }
+    el.innerHTML = withData.map(s => {
+      let modelsHtml = '';
+      const modelKeys = Object.keys(s.models || {});
+      if (modelKeys.length) {
+        modelsHtml = '<div style="margin-top:10px"><div class="sparkline-label">Model Token Breakdown</div><table style="font-size:12px"><thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache Read</th><th>Cache Create</th><th>Total</th></tr></thead><tbody>';
+        modelKeys.forEach(mid => {
+          const m = s.models[mid];
+          modelsHtml += '<tr><td>' + esc(mid) + '</td><td>' + m.input_tokens + '</td><td>' + m.output_tokens + '</td><td>' + m.cache_read_input_tokens + '</td><td>' + m.cache_creation_input_tokens + '</td><td>' + m.total_tokens + '</td></tr>';
+        });
+        modelsHtml += '</tbody></table></div>';
+      }
+      const toolMax = s.top_tools.length ? Math.max(...s.top_tools.map(t => t.call_count)) : 1;
+      return '<div class="card"><h3>' + esc(s.name) + '</h3>' +
+        '<div class="card-row"><span class="label">Tokens</span><span class="value">' + esc(s.total_tokens_formatted) + '</span></div>' +
+        '<div class="card-row"><span class="label">Sessions</span><span class="value">' + s.total_sessions + '</span></div>' +
+        '<div class="card-row"><span class="label">Messages</span><span class="value">' + s.total_messages + '</span></div>' +
+        modelsHtml +
+        '<div style="margin-top:10px"><div class="sparkline-label">Top Tools</div>' + renderToolBars(s.top_tools, toolMax) + '</div>' +
+        renderDailyChart(s.daily_activity, 340, 50) +
+        '</div>';
+    }).join('');
+  }
+
+  function renderEnvTable(envVars) {
+    const wrap = document.getElementById('env-table-wrap');
+    if (!envVars.length) { wrap.innerHTML = '<p class="empty-msg">No AI environment variables found</p>'; return; }
+    let h = '<table><thead><tr><th>Variable</th><th>Value</th><th>Length</th></tr></thead><tbody>';
+    envVars.forEach(e => {
+      h += '<tr><td>' + esc(e.name) + '</td><td style="font-family:monospace">' + esc(e.value) + '</td><td>' + esc(e.raw_length) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    wrap.innerHTML = h;
+  }
+
+  function renderRegistryTable(agents) {
+    const wrap = document.getElementById('registry-table-wrap');
+    if (!agents.length) { wrap.innerHTML = '<p class="empty-msg">No agents in registry</p>'; return; }
+    let h = '<table><thead><tr><th>Agent</th><th>Binaries</th><th>Config Dir</th><th>API Domain</th><th>Installed</th></tr></thead><tbody>';
+    agents.forEach(a => {
+      const inst = a.installed ? '<span class="badge badge-running">yes</span>' : '<span class="badge badge-not_found">no</span>';
+      h += '<tr><td>' + esc(a.name) + '</td><td>' + esc((a.binaries||[]).join(', ')) + '</td><td>' + esc(a.config_dir) + '</td><td>' + esc(a.api_domain) + '</td><td>' + inst + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    wrap.innerHTML = h;
+  }
+
+  function renderConfigs(configs) {
+    const wrap = document.getElementById('config-wrap');
+    if (!configs.length) { wrap.innerHTML = '<p class="empty-msg">No installed agent configurations</p>'; return; }
+    wrap.innerHTML = configs.map((c, i) => {
+      const keys = Object.keys(c.config || {}).sort();
+      let tbody = '';
+      keys.forEach(k => {
+        let v = c.config[k];
+        if (typeof v === 'object') v = JSON.stringify(v, null, 2);
+        if (String(v).length > 200) v = String(v).substring(0, 200) + '...';
+        tbody += '<tr><td style="font-weight:600;white-space:nowrap">' + esc(k) + '</td><td style="font-family:monospace;white-space:pre-wrap;word-break:break-all">' + esc(v) + '</td></tr>';
+      });
+      return '<div class="accordion" id="acc-' + i + '">' +
+        '<div class="accordion-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
+        '<span>' + esc(c.name) + '</span><span class="accordion-arrow">&#9654;</span></div>' +
+        '<div class="accordion-body"><table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>' + tbody + '</tbody></table></div></div>';
+    }).join('');
+  }
+
+  // --- Polling ---
+  let lastHistories = {};
+
+  async function pollFast() {
+    try {
+      const [agentsRes, histRes] = await Promise.all([
+        fetch('/api/agents'),
+        fetch('/api/agents/history')
+      ]);
+      if (!agentsRes.ok || !histRes.ok) throw new Error('fetch failed');
+      const agentsData = await agentsRes.json();
+      const histData = await histRes.json();
+      lastHistories = histData.histories || {};
+      renderAgentTable(agentsData.agents || []);
+      renderAgentCards(agentsData.agents || [], lastHistories);
+      setConnection(true);
+      updateTimestamp();
+    } catch (e) {
+      setConnection(false);
+    }
+  }
+
+  async function pollSlow() {
+    try {
+      const [statsRes, envRes, regRes, cfgRes] = await Promise.all([
+        fetch('/api/stats'),
+        fetch('/api/env'),
+        fetch('/api/registry'),
+        fetch('/api/config')
+      ]);
+      if (statsRes.ok) { const d = await statsRes.json(); renderStatsTable(d.stats || []); renderStatsCards(d.stats || []); }
+      if (envRes.ok) { const d = await envRes.json(); renderEnvTable(d.env_vars || []); }
+      if (regRes.ok) { const d = await regRes.json(); renderRegistryTable(d.agents || []); }
+      if (cfgRes.ok) { const d = await cfgRes.json(); renderConfigs(d.configs || []); }
+      setConnection(true);
+      updateTimestamp();
+    } catch (e) {
+      setConnection(false);
+    }
+  }
+
+  // Initial load
+  pollFast();
+  pollSlow();
+
+  // Set intervals
+  setInterval(pollFast, 2000);
+  setInterval(pollSlow, 30000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# Python
+*.cpython*
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+src/riva.egg-info/**
+*.egg
+dist/
+build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit these
+.env
+.env.local
+.env.*.local
+
+# Runtime
+*.log
+*.pid
+
+# Packaging
+*.tar.gz
+
+# uv
+uv.lock
