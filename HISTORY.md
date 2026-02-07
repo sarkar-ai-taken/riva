@@ -1,5 +1,40 @@
 # Release History
 
+## v0.2.3 (2026-02-06)
+
+### Sandbox / Container Detection
+
+- New **sandbox detection** module (`riva.core.sandbox`) — detect whether AI agents are running inside a container, sandbox, or directly on the host
+- **4-layer detection**: Linux cgroup analysis, parent process chain walking, filesystem markers (`/.dockerenv`, `/run/.containerenv`), and environment variable checks
+- Supported container runtimes: **Docker**, **Podman**, **containerd**, **LXC**, **CRI-O**, **runc**
+- Supported sandbox tools: **firejail**, **bubblewrap**, **nsjail**, **sandbox-exec**, **flatpak**
+- Kubernetes detection via `KUBERNETES_SERVICE_HOST` environment variable
+- Container ID extraction from cgroup data (Docker and Podman)
+
+### System Tray (macOS)
+
+- New **`riva tray`** command — launches a native macOS menu bar app ("RI" icon)
+- Native Swift binary compiled on first run and cached at `~/.cache/riva/tray-mac`
+- Menu actions: **Open TUI Dashboard**, **Open Web Dashboard**, **Start/Stop Web Server**, **Quick Scan**, **Security Audit**, **Quit**
+- Live web server status indicator with 5-second polling
+- Parent process watchdog — tray auto-exits when the parent Python process dies (no orphaned tray icons)
+- IPC via stdout between Swift and Python (same architecture as [deskmate](https://github.com/sarkar-ai-taken/sarkar-local-agent))
+- Requires Xcode Command Line Tools (`xcode-select --install`)
+
+### Dashboard
+
+- New **Sandbox** column in the agent overview table — shows "Host" (red) for unsandboxed agents, container runtime name (green) for containerized agents, or sandbox tool name (yellow)
+- Agent detail cards now display sandbox status with runtime and container ID
+
+### Tests
+
+- 26 new sandbox detection tests covering all detection paths, cgroup parsing, parent chain detection, environment checks, and edge cases
+- 24 new system tray tests covering compilation, action handling, lifecycle, and error paths
+
+## v0.2.2 (2026-02-04)
+
+- Bump version to 0.2.2 and add dashboard screenshots
+
 ## v0.2.1 (2026-02-02)
 
 - Fix repository URLs to point to correct GitHub organization (`sarkar-ai-taken/riva`)

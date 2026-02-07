@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections import deque
-from unittest.mock import MagicMock, mock_open, patch
+import signal
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from riva.agents.base import AgentInstance, AgentStatus
+from riva.cli import cli as riva_cli
 from riva.core.monitor import AgentHistory, ResourceSnapshot
 from riva.core.usage_stats import (
     DailyStats,
@@ -18,10 +19,10 @@ from riva.core.usage_stats import (
     UsageStats,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _fake_instances():
     return [
@@ -119,8 +120,10 @@ def app():
     # Clear caches
     srv._stats_cache.clear()
 
-    with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()), \
-         patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=_fake_usage_stats())):
+    with (
+        patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()),
+        patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=_fake_usage_stats())),
+    ):
         application = srv.create_app()
         application.config["TESTING"] = True
         yield application
@@ -134,6 +137,7 @@ def client(app):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestIndexRoute:
     def test_index_returns_html(self, client):
@@ -166,10 +170,13 @@ class TestApiAgents:
 
     def test_empty_agents(self):
         import riva.web.server as srv
+
         srv._stats_cache.clear()
 
-        with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor(instances=[])), \
-             patch.object(srv, "_get_registry", return_value=_make_mock_registry()):
+        with (
+            patch.object(srv, "_get_monitor", return_value=_make_mock_monitor(instances=[])),
+            patch.object(srv, "_get_registry", return_value=_make_mock_registry()),
+        ):
             application = srv.create_app()
             application.config["TESTING"] = True
             with application.test_client() as c:
@@ -192,10 +199,13 @@ class TestApiAgentsHistory:
 
     def test_empty_histories(self):
         import riva.web.server as srv
+
         srv._stats_cache.clear()
 
-        with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor(histories={})), \
-             patch.object(srv, "_get_registry", return_value=_make_mock_registry()):
+        with (
+            patch.object(srv, "_get_monitor", return_value=_make_mock_monitor(histories={})),
+            patch.object(srv, "_get_registry", return_value=_make_mock_registry()),
+        ):
             application = srv.create_app()
             application.config["TESTING"] = True
             with application.test_client() as c:
@@ -222,10 +232,13 @@ class TestApiStats:
 
     def test_stats_none_usage(self):
         import riva.web.server as srv
+
         srv._stats_cache.clear()
 
-        with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()), \
-             patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=None)):
+        with (
+            patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()),
+            patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=None)),
+        ):
             application = srv.create_app()
             application.config["TESTING"] = True
             with application.test_client() as c:
@@ -237,10 +250,12 @@ class TestApiStats:
 
 class TestApiEnv:
     def test_returns_env_vars(self, client):
-        with patch("riva.web.server.scan_env_vars", return_value=[
-            {"name": "ANTHROPIC_API_KEY", "value": "****abcd", "raw_length": "51"}
-        ]):
+        with patch(
+            "riva.web.server.scan_env_vars",
+            return_value=[{"name": "ANTHROPIC_API_KEY", "value": "****abcd", "raw_length": "51"}],
+        ):
             import riva.web.server as srv
+
             srv._stats_cache.pop("env", None)
             resp = client.get("/api/env")
             assert resp.status_code == 200
@@ -276,10 +291,13 @@ class TestApiConfig:
 
     def test_no_installed_agents(self):
         import riva.web.server as srv
+
         srv._stats_cache.clear()
 
-        with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()), \
-             patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=False)):
+        with (
+            patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()),
+            patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=False)),
+        ):
             application = srv.create_app()
             application.config["TESTING"] = True
             with application.test_client() as c:
@@ -292,13 +310,13 @@ class TestApiConfig:
 # Daemon PID file management tests
 # ---------------------------------------------------------------------------
 
+
 class TestDaemonPidFile:
     def test_write_and_read_pid(self, tmp_path):
         from riva.web import daemon
 
         pid_file = tmp_path / "web.pid"
-        with patch.object(daemon, "PID_FILE", pid_file), \
-             patch.object(daemon, "PID_DIR", tmp_path):
+        with patch.object(daemon, "PID_FILE", pid_file), patch.object(daemon, "PID_DIR", tmp_path):
             daemon.write_pid(12345)
             assert daemon.read_pid() == 12345
 
@@ -358,11 +376,13 @@ class TestStartDaemon:
         mock_proc = MagicMock()
         mock_proc.pid = 9999
 
-        with patch.object(daemon, "PID_FILE", pid_file), \
-             patch.object(daemon, "PID_DIR", tmp_path), \
-             patch.object(daemon, "LOG_FILE", log_file), \
-             patch.object(daemon, "read_pid", return_value=None), \
-             patch("subprocess.Popen", return_value=mock_proc):
+        with (
+            patch.object(daemon, "PID_FILE", pid_file),
+            patch.object(daemon, "PID_DIR", tmp_path),
+            patch.object(daemon, "LOG_FILE", log_file),
+            patch.object(daemon, "read_pid", return_value=None),
+            patch("subprocess.Popen", return_value=mock_proc),
+        ):
             pid = daemon.start_daemon("127.0.0.1", 8585)
 
         assert pid == 9999
@@ -371,8 +391,7 @@ class TestStartDaemon:
     def test_start_daemon_already_running(self, tmp_path):
         from riva.web import daemon
 
-        with patch.object(daemon, "read_pid", return_value=1111), \
-             patch.object(daemon, "is_running", return_value=True):
+        with patch.object(daemon, "read_pid", return_value=1111), patch.object(daemon, "is_running", return_value=True):
             with pytest.raises(RuntimeError, match="already running"):
                 daemon.start_daemon("127.0.0.1", 8585)
 
@@ -385,11 +404,13 @@ class TestStopDaemon:
         pid_file.write_text("5555")
 
         # is_running returns True first (for the initial check), then False (after SIGTERM)
-        with patch.object(daemon, "PID_FILE", pid_file), \
-             patch.object(daemon, "read_pid", return_value=5555), \
-             patch.object(daemon, "is_running", side_effect=[True, False]), \
-             patch("os.kill") as mock_kill, \
-             patch("time.sleep"):
+        with (
+            patch.object(daemon, "PID_FILE", pid_file),
+            patch.object(daemon, "read_pid", return_value=5555),
+            patch.object(daemon, "is_running", side_effect=[True, False]),
+            patch("os.kill") as mock_kill,
+            patch("time.sleep"),
+        ):
             result = daemon.stop_daemon()
 
         assert result is True
@@ -399,8 +420,7 @@ class TestStopDaemon:
         from riva.web import daemon
 
         pid_file = tmp_path / "web.pid"
-        with patch.object(daemon, "PID_FILE", pid_file), \
-             patch.object(daemon, "read_pid", return_value=None):
+        with patch.object(daemon, "PID_FILE", pid_file), patch.object(daemon, "read_pid", return_value=None):
             result = daemon.stop_daemon()
 
         assert result is False
@@ -410,9 +430,11 @@ class TestDaemonStatus:
     def test_status_running(self):
         from riva.web import daemon
 
-        with patch.object(daemon, "read_pid", return_value=7777), \
-             patch.object(daemon, "is_running", return_value=True), \
-             patch.object(daemon, "LOG_FILE", MagicMock(__str__=lambda s: "/tmp/web.log")):
+        with (
+            patch.object(daemon, "read_pid", return_value=7777),
+            patch.object(daemon, "is_running", return_value=True),
+            patch.object(daemon, "LOG_FILE", MagicMock(__str__=lambda s: "/tmp/web.log")),
+        ):
             info = daemon.daemon_status()
 
         assert info["running"] is True
@@ -421,8 +443,10 @@ class TestDaemonStatus:
     def test_status_not_running(self):
         from riva.web import daemon
 
-        with patch.object(daemon, "read_pid", return_value=None), \
-             patch.object(daemon, "LOG_FILE", MagicMock(__str__=lambda s: "/tmp/web.log")):
+        with (
+            patch.object(daemon, "read_pid", return_value=None),
+            patch.object(daemon, "LOG_FILE", MagicMock(__str__=lambda s: "/tmp/web.log")),
+        ):
             info = daemon.daemon_status()
 
         assert info["running"] is False
@@ -432,10 +456,6 @@ class TestDaemonStatus:
 # ---------------------------------------------------------------------------
 # CLI subcommand tests
 # ---------------------------------------------------------------------------
-
-import signal
-
-from riva.cli import cli as riva_cli
 
 
 class TestWebStartCommand:
@@ -481,9 +501,14 @@ class TestWebStopCommand:
 class TestWebStatusCommand:
     def test_status_running(self):
         runner = CliRunner()
-        with patch("riva.web.daemon.daemon_status", return_value={
-            "running": True, "pid": 1234, "log_file": "/tmp/web.log",
-        }):
+        with patch(
+            "riva.web.daemon.daemon_status",
+            return_value={
+                "running": True,
+                "pid": 1234,
+                "log_file": "/tmp/web.log",
+            },
+        ):
             result = runner.invoke(riva_cli, ["web", "status"])
         assert result.exit_code == 0
         assert "1234" in result.output
@@ -491,9 +516,14 @@ class TestWebStatusCommand:
 
     def test_status_not_running(self):
         runner = CliRunner()
-        with patch("riva.web.daemon.daemon_status", return_value={
-            "running": False, "pid": None, "log_file": "/tmp/web.log",
-        }):
+        with patch(
+            "riva.web.daemon.daemon_status",
+            return_value={
+                "running": False,
+                "pid": None,
+                "log_file": "/tmp/web.log",
+            },
+        ):
             result = runner.invoke(riva_cli, ["web", "status"])
         assert result.exit_code == 0
         assert "Not running" in result.output
@@ -534,6 +564,7 @@ class TestWebBackwardCompat:
 # Security headers tests
 # ---------------------------------------------------------------------------
 
+
 class TestSecurityHeaders:
     def test_security_headers_present(self, client):
         resp = client.get("/api/agents")
@@ -553,13 +584,19 @@ class TestSecurityHeaders:
 # Auth token tests
 # ---------------------------------------------------------------------------
 
+
 class TestAuthToken:
     def _create_authed_app(self, token):
         import riva.web.server as srv
+
         srv._stats_cache.clear()
 
-        with patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()), \
-             patch.object(srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=_fake_usage_stats())):
+        with (
+            patch.object(srv, "_get_monitor", return_value=_make_mock_monitor()),
+            patch.object(
+                srv, "_get_registry", return_value=_make_mock_registry(installed=True, usage=_fake_usage_stats())
+            ),
+        ):
             application = srv.create_app(auth_token=token)
             application.config["TESTING"] = True
             return application

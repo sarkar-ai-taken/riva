@@ -1,22 +1,17 @@
 """Tests for riva.core.usage_stats and agent parse_usage methods."""
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from riva.agents.claude_code import ClaudeCodeDetector
 from riva.agents.codex_cli import CodexCLIDetector
 from riva.core.usage_stats import (
     DailyStats,
-    ModelStats,
     TokenUsage,
     ToolCallStats,
     UsageStats,
 )
-
 
 # ---------------------------------------------------------------------------
 # Dataclass unit tests
@@ -73,7 +68,8 @@ class TestClaudeCodeParseUsage:
         d = ClaudeCodeDetector()
         # Patch config_dir to use tmp_path
         patcher = patch.object(
-            type(d), "config_dir",
+            type(d),
+            "config_dir",
             new_callable=lambda: property(lambda self: tmp_path),
         )
         patcher.start()
@@ -82,7 +78,8 @@ class TestClaudeCodeParseUsage:
     def test_returns_none_for_missing_dir(self):
         d = ClaudeCodeDetector()
         with patch.object(
-            type(d), "config_dir",
+            type(d),
+            "config_dir",
             new_callable=lambda: property(lambda self: Path("/tmp/riva_nonexistent_12345")),
         ):
             assert d.parse_usage() is None
@@ -134,10 +131,15 @@ class TestClaudeCodeParseUsage:
                 json.dumps({"type": "tool_use", "name": "Read", "timestamp": "2025-01-10T10:00:00Z"}),
                 json.dumps({"type": "tool_use", "name": "Read", "timestamp": "2025-01-10T10:05:00Z"}),
                 json.dumps({"type": "tool_use", "name": "Write", "timestamp": "2025-01-10T10:10:00Z"}),
-                json.dumps({"type": "assistant", "content": [
-                    {"type": "tool_use", "name": "Bash"},
-                    {"type": "text", "text": "hello"},
-                ]}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "content": [
+                            {"type": "tool_use", "name": "Bash"},
+                            {"type": "text", "text": "hello"},
+                        ],
+                    }
+                ),
             ]
             session.write_text("\n".join(lines) + "\n")
 
@@ -185,7 +187,8 @@ class TestCodexCLIParseUsage:
     def _make_detector(self, tmp_path):
         d = CodexCLIDetector()
         patcher = patch.object(
-            type(d), "config_dir",
+            type(d),
+            "config_dir",
             new_callable=lambda: property(lambda self: tmp_path),
         )
         patcher.start()
@@ -215,31 +218,37 @@ class TestCodexCLIParseUsage:
             sessions.mkdir(parents=True)
             sf = sessions / "session1.jsonl"
             lines = [
-                json.dumps({
-                    "type": "session_meta",
-                    "payload": {"session_id": "abc"},
-                    "timestamp": "2025-01-15T10:00:00Z",
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {
-                        "type": "token_count",
-                        "model": "gpt-4",
-                        "input_tokens": 200,
-                        "output_tokens": 100,
-                    },
-                    "timestamp": "2025-01-15T10:01:00Z",
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {
-                        "type": "token_count",
-                        "model": "gpt-4",
-                        "input_tokens": 300,
-                        "output_tokens": 150,
-                    },
-                    "timestamp": "2025-01-15T10:02:00Z",
-                }),
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"session_id": "abc"},
+                        "timestamp": "2025-01-15T10:00:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "model": "gpt-4",
+                            "input_tokens": 200,
+                            "output_tokens": 100,
+                        },
+                        "timestamp": "2025-01-15T10:01:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "model": "gpt-4",
+                            "input_tokens": 300,
+                            "output_tokens": 150,
+                        },
+                        "timestamp": "2025-01-15T10:02:00Z",
+                    }
+                ),
             ]
             sf.write_text("\n".join(lines) + "\n")
 
@@ -262,21 +271,27 @@ class TestCodexCLIParseUsage:
             sessions.mkdir()
             sf = sessions / "s.jsonl"
             lines = [
-                json.dumps({
-                    "type": "response_item",
-                    "payload": {"type": "function_call", "name": "shell"},
-                    "timestamp": "2025-01-15T10:00:00Z",
-                }),
-                json.dumps({
-                    "type": "response_item",
-                    "payload": {"type": "function_call", "name": "shell"},
-                    "timestamp": "2025-01-15T10:01:00Z",
-                }),
-                json.dumps({
-                    "type": "response_item",
-                    "payload": {"type": "function_call", "name": "file_edit"},
-                    "timestamp": "2025-01-16T10:00:00Z",
-                }),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {"type": "function_call", "name": "shell"},
+                        "timestamp": "2025-01-15T10:00:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {"type": "function_call", "name": "shell"},
+                        "timestamp": "2025-01-15T10:01:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {"type": "function_call", "name": "file_edit"},
+                        "timestamp": "2025-01-16T10:00:00Z",
+                    }
+                ),
             ]
             sf.write_text("\n".join(lines) + "\n")
 
@@ -298,16 +313,20 @@ class TestCodexCLIParseUsage:
             sessions.mkdir()
             sf = sessions / "s.jsonl"
             lines = [
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {"type": "token_count", "model": "m", "input_tokens": 10, "output_tokens": 5},
-                    "timestamp": "2025-01-15T10:00:00Z",
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {"type": "token_count", "model": "m", "input_tokens": 20, "output_tokens": 10},
-                    "timestamp": "2025-01-16T10:00:00Z",
-                }),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {"type": "token_count", "model": "m", "input_tokens": 10, "output_tokens": 5},
+                        "timestamp": "2025-01-15T10:00:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {"type": "token_count", "model": "m", "input_tokens": 20, "output_tokens": 10},
+                        "timestamp": "2025-01-16T10:00:00Z",
+                    }
+                ),
             ]
             sf.write_text("\n".join(lines) + "\n")
 

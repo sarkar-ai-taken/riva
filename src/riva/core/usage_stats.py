@@ -16,12 +16,7 @@ class TokenUsage:
 
     @property
     def total_tokens(self) -> int:
-        return (
-            self.input_tokens
-            + self.output_tokens
-            + self.cache_read_input_tokens
-            + self.cache_creation_input_tokens
-        )
+        return self.input_tokens + self.output_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens
 
 
 @dataclass

@@ -10,7 +10,6 @@ from riva.agents.base import AgentInstance, AgentStatus
 from riva.core.monitor import AgentHistory
 from riva.utils.formatting import format_mb, format_number, format_uptime
 
-
 # Status colors and icons
 STATUS_STYLES = {
     AgentStatus.RUNNING: ("bold green", "●"),
@@ -43,6 +42,21 @@ def agent_status_text(status: AgentStatus) -> Text:
     return Text(f"{icon} {status.value}", style=style)
 
 
+def _sandbox_text(instance: AgentInstance) -> Text:
+    """Render a styled sandbox indicator for an agent."""
+    if instance.status != AgentStatus.RUNNING:
+        return Text("-", style="dim")
+    sandbox = instance.extra.get("sandbox", {})
+    if not sandbox or not sandbox.get("is_sandboxed"):
+        return Text("Host", style="bold red")
+    stype = sandbox.get("sandbox_type", "sandbox")
+    runtime = sandbox.get("runtime")
+    label = runtime or stype
+    if stype == "container":
+        return Text(f"\u25a3 {label}", style="bold green")
+    return Text(f"\u25a3 {label}", style="bold yellow")
+
+
 def build_agent_table(instances: list[AgentInstance]) -> Table:
     """Build the main agent overview table."""
     table = Table(
@@ -53,6 +67,7 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
     )
     table.add_column("Agent", style="bold white", min_width=14)
     table.add_column("Status", min_width=10)
+    table.add_column("Sandbox", min_width=12)
     table.add_column("PID", justify="right", min_width=7)
     table.add_column("CPU %", justify="right", min_width=7)
     table.add_column("Memory", justify="right", min_width=10)
@@ -64,6 +79,7 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
     for inst in sorted(instances, key=lambda i: (i.status != AgentStatus.RUNNING, i.name)):
         style, icon = STATUS_STYLES.get(inst.status, ("dim", "?"))
         status_text = Text(f"{icon} {inst.status.value}", style=style)
+        sandbox_text = _sandbox_text(inst)
         pid_str = str(inst.pid) if inst.pid else "-"
         cpu_str = f"{inst.cpu_percent:.1f}" if inst.status == AgentStatus.RUNNING else "-"
         mem_str = format_mb(inst.memory_mb) if inst.status == AgentStatus.RUNNING else "-"
@@ -77,10 +93,10 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
         if len(cwd) > 40:
             cwd = "…" + cwd[-(39):]
 
-        table.add_row(inst.name, status_text, pid_str, cpu_str, mem_str, children_str, launched_by_str, uptime_str, cwd)
+        table.add_row(inst.name, status_text, sandbox_text, pid_str, cpu_str, mem_str, children_str, launched_by_str, uptime_str, cwd)
 
     if not instances:
-        table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "", "", "")
+        table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "", "", "", "")
 
     return table
 
@@ -97,6 +113,16 @@ def build_agent_card(instance: AgentInstance, history: AgentHistory | None = Non
         lines.append(f"[bold]Parent PID:[/bold] {instance.parent_pid}")
     lines.append(f"[bold]Binary:[/bold] {instance.binary_path or 'N/A'}")
     lines.append(f"[bold]API:[/bold] {instance.api_domain or 'N/A'}")
+
+    # Sandbox / container status
+    sandbox = instance.extra.get("sandbox", {})
+    if sandbox.get("is_sandboxed"):
+        runtime = sandbox.get("runtime", sandbox.get("sandbox_type", "unknown"))
+        cid = sandbox.get("container_id")
+        label = f"{runtime}" + (f" ({cid})" if cid else "")
+        lines.append(f"[bold]Sandbox:[/bold] [green]{label}[/green]")
+    else:
+        lines.append("[bold]Sandbox:[/bold] [red]Host (no sandbox)[/red]")
 
     if instance.status == AgentStatus.RUNNING:
         lines.append(f"[bold]CPU:[/bold] {instance.cpu_percent:.1f}%")
@@ -190,8 +216,13 @@ def build_usage_table(instances: list[AgentInstance]) -> Table:
             last_activity = "-"
 
         table.add_row(
-            inst.name, status_text, tokens_str,
-            sessions_str, messages_str, tools_str, last_activity,
+            inst.name,
+            status_text,
+            tokens_str,
+            sessions_str,
+            messages_str,
+            tools_str,
+            last_activity,
         )
 
     if not instances:
@@ -224,9 +255,7 @@ def build_usage_card(instance: AgentInstance) -> Panel:
     )
 
     if stats.time_range_start and stats.time_range_end:
-        lines.append(
-            f"[bold]Period:[/bold] {stats.time_range_start} → {stats.time_range_end}"
-        )
+        lines.append(f"[bold]Period:[/bold] {stats.time_range_start} → {stats.time_range_end}")
 
     # Model breakdown
     if stats.model_stats:
@@ -289,7 +318,15 @@ def build_network_table(instances: list[AgentInstance]) -> Table:
         for conn in network:
             has_conns = True
             status = conn.get("status", "")
-            status_style = "green" if status == "ESTABLISHED" else "yellow" if status == "CLOSE_WAIT" else "red" if status == "TIME_WAIT" else "dim"
+            status_style = (
+                "green"
+                if status == "ESTABLISHED"
+                else "yellow"
+                if status == "CLOSE_WAIT"
+                else "red"
+                if status == "TIME_WAIT"
+                else "dim"
+            )
             tls_text = Text("✓", style="green") if conn.get("is_tls") else Text("✗", style="dim")
             table.add_row(
                 inst.name,

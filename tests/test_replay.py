@@ -70,11 +70,13 @@ class TestGetStateAt:
 
     def test_includes_children(self, storage):
         inst = _make_instance(
-            "Agent A", pid=100, tree_data={
+            "Agent A",
+            pid=100,
+            tree_data={
                 "tree_cpu_percent": 15.0,
                 "tree_memory_mb": 200.0,
                 "child_count": 2,
-            }
+            },
         )
         storage.record_snapshot(inst, connection_count=0)
 
@@ -82,10 +84,28 @@ class TestGetStateAt:
         conn = storage._get_conn()
         row = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
         snapshot_id = row["id"]
-        storage.record_child_processes(snapshot_id, 100, [
-            {"pid": 101, "name": "child1", "exe": "/usr/bin/c1", "cpu_percent": 5.0, "memory_mb": 50.0, "status": "running"},
-            {"pid": 102, "name": "child2", "exe": "/usr/bin/c2", "cpu_percent": 10.0, "memory_mb": 150.0, "status": "running"},
-        ])
+        storage.record_child_processes(
+            snapshot_id,
+            100,
+            [
+                {
+                    "pid": 101,
+                    "name": "child1",
+                    "exe": "/usr/bin/c1",
+                    "cpu_percent": 5.0,
+                    "memory_mb": 50.0,
+                    "status": "running",
+                },
+                {
+                    "pid": 102,
+                    "name": "child2",
+                    "exe": "/usr/bin/c2",
+                    "cpu_percent": 10.0,
+                    "memory_mb": 150.0,
+                    "status": "running",
+                },
+            ],
+        )
 
         state = storage.get_state_at(time.time() + 1)
         assert len(state) == 1
@@ -94,7 +114,9 @@ class TestGetStateAt:
 
     def test_includes_network_connections(self, storage):
         inst = _make_instance(
-            "Agent A", pid=100, network=[
+            "Agent A",
+            pid=100,
+            network=[
                 {
                     "local_addr": "127.0.0.1",
                     "local_port": 5000,
@@ -105,7 +127,7 @@ class TestGetStateAt:
                     "known_service": "Test API",
                     "is_tls": True,
                 }
-            ]
+            ],
         )
         storage.record_snapshot(inst, connection_count=1)
 
@@ -136,16 +158,18 @@ class TestGetTimelineSummary:
         storage.record_snapshot(inst, connection_count=0)
 
         # Record an orphan at current time
-        storage.record_orphan({
-            "agent_name": "Agent A",
-            "original_parent_pid": 1,
-            "pid": 101,
-            "name": "orphan",
-            "exe": "/usr/bin/orphan",
-            "detected_at": time.time(),
-            "cpu_percent": 1.0,
-            "memory_mb": 10.0,
-        })
+        storage.record_orphan(
+            {
+                "agent_name": "Agent A",
+                "original_parent_pid": 1,
+                "pid": 101,
+                "name": "orphan",
+                "exe": "/usr/bin/orphan",
+                "detected_at": time.time(),
+                "cpu_percent": 1.0,
+                "memory_mb": 10.0,
+            }
+        )
 
         summary = storage.get_timeline_summary(hours=1.0, bucket_seconds=3600)
         assert len(summary) >= 1
@@ -185,9 +209,20 @@ class TestChildProcessPersistence:
         row = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
         snapshot_id = row["id"]
 
-        storage.record_child_processes(snapshot_id, 100, [
-            {"pid": 101, "name": "c1", "exe": "/bin/c1", "cpu_percent": 5.0, "memory_mb": 50.0, "status": "running"},
-        ])
+        storage.record_child_processes(
+            snapshot_id,
+            100,
+            [
+                {
+                    "pid": 101,
+                    "name": "c1",
+                    "exe": "/bin/c1",
+                    "cpu_percent": 5.0,
+                    "memory_mb": 50.0,
+                    "status": "running",
+                },
+            ],
+        )
 
         children = storage.get_child_processes(snapshot_id)
         assert len(children) == 1
@@ -197,29 +232,33 @@ class TestChildProcessPersistence:
 
 class TestOrphanPersistence:
     def test_record_and_get_orphans(self, storage):
-        storage.record_orphan({
-            "agent_name": "Agent A",
-            "original_parent_pid": 100,
-            "pid": 101,
-            "name": "orphan1",
-            "exe": "/bin/orphan1",
-            "detected_at": time.time(),
-            "cpu_percent": 2.0,
-            "memory_mb": 20.0,
-        })
+        storage.record_orphan(
+            {
+                "agent_name": "Agent A",
+                "original_parent_pid": 100,
+                "pid": 101,
+                "name": "orphan1",
+                "exe": "/bin/orphan1",
+                "detected_at": time.time(),
+                "cpu_percent": 2.0,
+                "memory_mb": 20.0,
+            }
+        )
 
         orphans = storage.get_orphans(resolved=False, hours=1.0)
         assert len(orphans) == 1
         assert orphans[0]["orphan_pid"] == 101
 
     def test_resolve_orphan(self, storage):
-        storage.record_orphan({
-            "agent_name": "Agent A",
-            "original_parent_pid": 100,
-            "pid": 101,
-            "name": "orphan1",
-            "detected_at": time.time(),
-        })
+        storage.record_orphan(
+            {
+                "agent_name": "Agent A",
+                "original_parent_pid": 100,
+                "pid": 101,
+                "name": "orphan1",
+                "detected_at": time.time(),
+            }
+        )
 
         storage.resolve_orphan(101)
 
@@ -233,12 +272,14 @@ class TestOrphanPersistence:
         assert all_orphans[0]["resolved_at"] is not None
 
     def test_cleanup_includes_orphans(self, storage):
-        storage.record_orphan({
-            "agent_name": "Agent A",
-            "original_parent_pid": 100,
-            "pid": 101,
-            "detected_at": time.time(),
-        })
+        storage.record_orphan(
+            {
+                "agent_name": "Agent A",
+                "original_parent_pid": 100,
+                "pid": 101,
+                "detected_at": time.time(),
+            }
+        )
 
         storage.cleanup(retention_days=0)
 
@@ -249,12 +290,13 @@ class TestOrphanPersistence:
 class TestNewSnapshotColumns:
     def test_tree_columns_in_snapshot(self, storage):
         inst = _make_instance(
-            "Agent A", pid=100,
+            "Agent A",
+            pid=100,
             tree_data={
                 "tree_cpu_percent": 25.0,
                 "tree_memory_mb": 500.0,
                 "child_count": 3,
-            }
+            },
         )
         storage.record_snapshot(inst, connection_count=0)
 
@@ -270,9 +312,13 @@ class TestNewSnapshotColumns:
 
         conn = storage._get_conn()
         row = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
-        storage.record_child_processes(row["id"], 100, [
-            {"pid": 101, "name": "c1"},
-        ])
+        storage.record_child_processes(
+            row["id"],
+            100,
+            [
+                {"pid": 101, "name": "c1"},
+            ],
+        )
 
         storage.cleanup(retention_days=0)
 

@@ -2,9 +2,7 @@
 
 import time
 from collections import deque
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from riva.agents.base import AgentInstance, AgentStatus, SimpleAgentDetector
 from riva.agents.registry import AgentRegistry
@@ -58,7 +56,8 @@ class TestResourceMonitor:
 
         # Mock scanner to return a known instance
         fake_instance = AgentInstance(
-            name="Test", status=AgentStatus.INSTALLED,
+            name="Test",
+            status=AgentStatus.INSTALLED,
         )
         with patch.object(monitor._scanner, "scan", return_value=[fake_instance]):
             results = monitor.scan_once()
@@ -71,12 +70,17 @@ class TestResourceMonitor:
         monitor = ResourceMonitor(registry=reg, interval=0.1)
 
         running = AgentInstance(
-            name="Test", status=AgentStatus.RUNNING,
-            pid=123, cpu_percent=15.0, memory_mb=256.0,
+            name="Test",
+            status=AgentStatus.RUNNING,
+            pid=123,
+            cpu_percent=15.0,
+            memory_mb=256.0,
         )
 
-        with patch.object(monitor._scanner, "scan", return_value=[running]), \
-             patch.object(monitor._scanner, "refresh_instance", return_value=running):
+        with (
+            patch.object(monitor._scanner, "scan", return_value=[running]),
+            patch.object(monitor._scanner, "refresh_instance", return_value=running),
+        ):
             monitor.scan_once()
 
         histories = monitor.histories
@@ -91,7 +95,8 @@ class TestResourceMonitor:
         monitor = ResourceMonitor(registry=reg, interval=0.1)
 
         installed = AgentInstance(
-            name="Test", status=AgentStatus.INSTALLED,
+            name="Test",
+            status=AgentStatus.INSTALLED,
         )
         with patch.object(monitor._scanner, "scan", return_value=[installed]):
             monitor.scan_once()

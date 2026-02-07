@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from riva.agents.base import (
     AgentDetector,
     AgentInstance,
@@ -14,10 +12,10 @@ from riva.agents.base import (
     filter_secrets,
 )
 
-
 # ---------------------------------------------------------------------------
 # filter_secrets
 # ---------------------------------------------------------------------------
+
 
 class TestFilterSecrets:
     def test_removes_key_fields(self):
@@ -46,6 +44,7 @@ class TestFilterSecrets:
 # AgentStatus
 # ---------------------------------------------------------------------------
 
+
 class TestAgentStatus:
     def test_values(self):
         assert AgentStatus.RUNNING.value == "running"
@@ -56,6 +55,7 @@ class TestAgentStatus:
 # ---------------------------------------------------------------------------
 # AgentInstance
 # ---------------------------------------------------------------------------
+
 
 class TestAgentInstance:
     def test_defaults(self):
@@ -81,6 +81,7 @@ class TestAgentInstance:
 # ---------------------------------------------------------------------------
 # SimpleAgentDetector
 # ---------------------------------------------------------------------------
+
 
 class TestSimpleAgentDetector:
     def _make(self, **kwargs):
@@ -124,7 +125,9 @@ class TestSimpleAgentDetector:
         assert det.match_process("node", ["/usr/bin/node", "server.js"], "") is False
 
     def test_custom_process_matcher(self):
-        matcher = lambda name, cmdline, exe: name == "custom"
+        def matcher(name, cmdline, exe):
+            return name == "custom"
+
         det = self._make(process_matcher=matcher)
         assert det.match_process("custom", [], "") is True
         assert det.match_process("testagent", [], "") is False
@@ -155,9 +158,7 @@ class TestSimpleAgentDetector:
     def test_parse_config_json(self, tmp_path):
         config_dir = tmp_path / "agent"
         config_dir.mkdir()
-        (config_dir / "settings.json").write_text(
-            json.dumps({"model": "gpt-4", "api_key": "sk-secret"})
-        )
+        (config_dir / "settings.json").write_text(json.dumps({"model": "gpt-4", "api_key": "sk-secret"}))
         det = self._make(config=str(config_dir))
         result = det.parse_config()
         assert result["settings"]["model"] == "gpt-4"
@@ -195,6 +196,7 @@ class TestSimpleAgentDetector:
 # ---------------------------------------------------------------------------
 # _match_by_name (via a minimal concrete subclass)
 # ---------------------------------------------------------------------------
+
 
 class _StubDetector(AgentDetector):
     @property

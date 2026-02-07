@@ -19,18 +19,52 @@ class LaunchType(enum.Enum):
 
 
 # Known shell process names (skip through these to find the real launcher)
-_SHELLS = frozenset({
-    "bash", "zsh", "fish", "sh", "dash", "tcsh", "csh", "ksh", "elvish", "nu",
-    "login", "-bash", "-zsh", "-fish", "-sh",
-})
+_SHELLS = frozenset(
+    {
+        "bash",
+        "zsh",
+        "fish",
+        "sh",
+        "dash",
+        "tcsh",
+        "csh",
+        "ksh",
+        "elvish",
+        "nu",
+        "login",
+        "-bash",
+        "-zsh",
+        "-fish",
+        "-sh",
+    }
+)
 
 # Known terminal emulators → user_terminal
-_TERMINALS = frozenset({
-    "Terminal", "iTerm2", "iTerm", "Alacritty", "kitty", "WezTerm",
-    "wezterm-gui", "Hyper", "tmux", "screen", "gnome-terminal-server",
-    "konsole", "xterm", "alacritty", "rxvt", "urxvt", "st",
-    "tilix", "terminator", "guake", "yakuake",
-})
+_TERMINALS = frozenset(
+    {
+        "Terminal",
+        "iTerm2",
+        "iTerm",
+        "Alacritty",
+        "kitty",
+        "WezTerm",
+        "wezterm-gui",
+        "Hyper",
+        "tmux",
+        "screen",
+        "gnome-terminal-server",
+        "konsole",
+        "xterm",
+        "alacritty",
+        "rxvt",
+        "urxvt",
+        "st",
+        "tilix",
+        "terminator",
+        "guake",
+        "yakuake",
+    }
+)
 
 # Known IDE process names → ide  (maps name fragment → human label)
 _IDE_NAMES: dict[str, str] = {
@@ -52,21 +86,49 @@ _IDE_NAMES: dict[str, str] = {
 }
 
 # Known system/launcher process names
-_SYSTEM_LAUNCHERS = frozenset({
-    "launchd", "init", "systemd", "cron", "crond", "atd",
-    "supervisord", "containerd", "dockerd", "docker",
-})
+_SYSTEM_LAUNCHERS = frozenset(
+    {
+        "launchd",
+        "init",
+        "systemd",
+        "cron",
+        "crond",
+        "atd",
+        "supervisord",
+        "containerd",
+        "dockerd",
+        "docker",
+    }
+)
 
 # Known script interpreters
-_SCRIPT_INTERPRETERS = frozenset({
-    "python", "python3", "python3.10", "python3.11", "python3.12", "python3.13",
-    "node", "ruby", "perl", "php", "deno", "bun",
-})
+_SCRIPT_INTERPRETERS = frozenset(
+    {
+        "python",
+        "python3",
+        "python3.10",
+        "python3.11",
+        "python3.12",
+        "python3.13",
+        "node",
+        "ruby",
+        "perl",
+        "php",
+        "deno",
+        "bun",
+    }
+)
 
 # Named tool launchers (script type but with a known label)
-_KNOWN_TOOL_LAUNCHERS = frozenset({
-    "deskmate", "supervisord", "pm2", "npx", "pipx",
-})
+_KNOWN_TOOL_LAUNCHERS = frozenset(
+    {
+        "deskmate",
+        "supervisord",
+        "pm2",
+        "npx",
+        "pipx",
+    }
+)
 
 _MAX_ANCESTOR_DEPTH = 15
 
@@ -171,11 +233,13 @@ def classify_launcher(pid: int) -> LauncherInfo:
     # Build ancestor chain
     info.ancestor_chain = []
     for a in ancestors:
-        info.ancestor_chain.append({
-            "pid": a.pid,
-            "name": _proc_name(a),
-            "exe": _proc_exe(a),
-        })
+        info.ancestor_chain.append(
+            {
+                "pid": a.pid,
+                "name": _proc_name(a),
+                "exe": _proc_exe(a),
+            }
+        )
 
     # Walk ancestors (skip shells) to find the real launcher
     for ancestor in ancestors:

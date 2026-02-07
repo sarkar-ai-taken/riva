@@ -1,7 +1,5 @@
 """Tests for riva.utils.formatting."""
 
-import pytest
-
 from riva.utils.formatting import format_bytes, format_mb, format_number, format_uptime, mask_secret
 
 

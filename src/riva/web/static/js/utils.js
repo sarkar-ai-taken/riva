@@ -13,6 +13,18 @@ function statusBadge(status) {
   return '<span class="' + cls + '">' + label + '</span>';
 }
 
+function sandboxBadge(agent) {
+  var sb = agent.sandbox;
+  if (!sb || agent.status !== 'running') return '<span class="badge badge-not_found">\u2014</span>';
+  if (sb.is_sandboxed) {
+    var label = sb.runtime || sb.sandbox_type || 'sandboxed';
+    var cid = sb.container_id ? ' (' + sb.container_id + ')' : '';
+    var cls = sb.sandbox_type === 'container' ? 'badge-running' : 'badge-installed';
+    return '<span class="badge ' + cls + '">\u25a3 ' + esc(label) + cid + '</span>';
+  }
+  return '<span class="badge severity-high">Host</span>';
+}
+
 function severityBadge(severity) {
   const cls = 'badge severity-' + severity;
   return '<span class="' + cls + '">' + esc(severity) + '</span>';

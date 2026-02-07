@@ -6,7 +6,6 @@ import sqlite3
 import time
 from pathlib import Path
 
-
 _DEFAULT_DB_PATH = Path.home() / ".config" / "riva" / "riva.db"
 _DEFAULT_RETENTION_DAYS = 7
 
@@ -143,7 +142,8 @@ class RivaStorage:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
         if row:
             conn.execute(
-                "UPDATE agents SET last_seen = ?, config_dir = COALESCE(?, config_dir), api_domain = COALESCE(?, api_domain) WHERE id = ?",
+                "UPDATE agents SET last_seen = ?, config_dir = COALESCE(?, config_dir), "
+                "api_domain = COALESCE(?, api_domain) WHERE id = ?",
                 (now, config_dir, api_domain, row["id"]),
             )
             conn.commit()
@@ -167,7 +167,10 @@ class RivaStorage:
 
         tree_data = instance.extra.get("process_tree", {})
         cursor = conn.execute(
-            """INSERT INTO snapshots (agent_id, timestamp, pid, cpu_percent, memory_mb, uptime_seconds, connection_count, status, tree_cpu_percent, tree_memory_mb, child_count, parent_pid, parent_name, launched_by)
+            """INSERT INTO snapshots
+               (agent_id, timestamp, pid, cpu_percent, memory_mb, uptime_seconds,
+                connection_count, status, tree_cpu_percent, tree_memory_mb,
+                child_count, parent_pid, parent_name, launched_by)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 agent_id,
@@ -194,7 +197,8 @@ class RivaStorage:
             for nc in network_data:
                 conn.execute(
                     """INSERT INTO network_connections
-                       (snapshot_id, local_addr, local_port, remote_addr, remote_port, status, hostname, known_service, is_tls)
+                       (snapshot_id, local_addr, local_port, remote_addr,
+                        remote_port, status, hostname, known_service, is_tls)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         snapshot_id,
@@ -300,7 +304,8 @@ class RivaStorage:
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO orphan_processes
-               (agent_name, original_parent_pid, orphan_pid, orphan_name, orphan_exe, detected_at, cpu_percent, memory_mb)
+               (agent_name, original_parent_pid, orphan_pid, orphan_name,
+                orphan_exe, detected_at, cpu_percent, memory_mb)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 orphan.get("agent_name", ""),
@@ -335,7 +340,8 @@ class RivaStorage:
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM orphan_processes WHERE resolved_at IS NULL AND detected_at > ? ORDER BY detected_at DESC",
+                "SELECT * FROM orphan_processes WHERE resolved_at IS NULL "
+                "AND detected_at > ? ORDER BY detected_at DESC",
                 (cutoff,),
             ).fetchall()
         return [dict(row) for row in rows]
@@ -459,15 +465,17 @@ class RivaStorage:
                 (bucket_ts + bucket_seconds, bucket_ts),
             ).fetchone()["cnt"]
 
-            results.append({
-                "timestamp": bucket_ts,
-                "agent_count": row["agent_count"],
-                "total_cpu": round(row["total_cpu"] or 0, 2),
-                "total_memory": round(row["total_memory"] or 0, 2),
-                "total_connections": row["total_connections"] or 0,
-                "total_children": row["total_children"] or 0,
-                "orphan_count": orphan_count,
-            })
+            results.append(
+                {
+                    "timestamp": bucket_ts,
+                    "agent_count": row["agent_count"],
+                    "total_cpu": round(row["total_cpu"] or 0, 2),
+                    "total_memory": round(row["total_memory"] or 0, 2),
+                    "total_connections": row["total_connections"] or 0,
+                    "total_children": row["total_children"] or 0,
+                    "orphan_count": orphan_count,
+                }
+            )
 
         return results
 

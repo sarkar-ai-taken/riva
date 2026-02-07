@@ -36,8 +36,7 @@ class ClineDetector(AgentDetector):
         try:
             # Look for saoudrizwan.claude-dev-* extensions
             dirs = sorted(
-                [d for d in ext_dir.iterdir()
-                 if d.name.startswith("saoudrizwan.claude-dev") and d.is_dir()],
+                [d for d in ext_dir.iterdir() if d.name.startswith("saoudrizwan.claude-dev") and d.is_dir()],
                 key=lambda p: p.name,
                 reverse=True,
             )

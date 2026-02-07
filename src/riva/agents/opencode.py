@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from riva.agents.base import AgentDetector, filter_secrets
+from riva.agents.base import AgentDetector
 
 
 class OpenCodeDetector(AgentDetector):

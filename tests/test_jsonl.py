@@ -2,9 +2,6 @@
 
 import json
 import os
-import time
-
-import pytest
 
 from riva.utils.jsonl import find_recent_sessions, stream_jsonl
 
@@ -27,10 +24,7 @@ class TestStreamJsonl:
     def test_malformed_lines_skipped(self, tmp_path):
         f = tmp_path / "data.jsonl"
         f.write_text(
-            '{"ok": true}\n'
-            "NOT JSON\n"
-            '{"also": "ok"}\n'
-            "[1, 2, 3]\n"  # array, not dict — skipped
+            '{"ok": true}\nNOT JSON\n{"also": "ok"}\n[1, 2, 3]\n'  # array, not dict — skipped
         )
 
         result = list(stream_jsonl(f))

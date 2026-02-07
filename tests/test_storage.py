@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-import time
-from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 from riva.agents.base import AgentInstance, AgentStatus
@@ -112,7 +107,7 @@ class TestRivaStorage:
 
         # Old data wouldn't appear for very short window
         # (this test just verifies the query works)
-        old = storage.get_snapshots(hours=0.0001)
+        storage.get_snapshots(hours=0.0001)
         # Might be 0 or 1 depending on timing, just verify no error
 
     def test_record_audit_event(self, storage):

@@ -46,9 +46,7 @@ def _build_usage_summary(monitor: ResourceMonitor) -> Panel:
         tokens = format_number(stats.total_tokens)
         sessions = format_number(stats.total_sessions)
         tools = format_number(stats.total_tool_calls)
-        parts.append(
-            f"[bold]{inst.name}[/bold]: {tokens} tokens · {sessions} sessions · {tools} tool calls"
-        )
+        parts.append(f"[bold]{inst.name}[/bold]: {tokens} tokens · {sessions} sessions · {tools} tool calls")
 
     if not parts:
         content = "[dim]No usage data available. Run [bold]riva stats[/bold] for full breakdown.[/dim]"
@@ -102,11 +100,7 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
             key = f"{inst.name}:{inst.pid}" if inst.pid else inst.name
             history = histories.get(key)
             cards.append(build_agent_card(inst, history))
-        body["details"].update(
-            Columns(cards, equal=True, expand=True)
-            if len(cards) > 1
-            else cards[0]
-        )
+        body["details"].update(Columns(cards, equal=True, expand=True) if len(cards) > 1 else cards[0])
     else:
         body["details"].update(
             Panel(

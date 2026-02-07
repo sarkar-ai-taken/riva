@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from riva.agents.base import AgentInstance, AgentStatus
 from riva.cli import cli
-from riva.core.usage_stats import TokenUsage, ToolCallStats, UsageStats
+from riva.core.usage_stats import ToolCallStats, UsageStats
 
 
 @pytest.fixture
@@ -173,13 +173,13 @@ class TestAuditCommand:
 
 class TestHostBindingWarning:
     def test_non_localhost_warning_foreground(self, runner):
-        with patch("riva.web.server.run_server") as mock_run:
+        with patch("riva.web.server.run_server"):
             result = runner.invoke(cli, ["web", "--host", "0.0.0.0", "start", "-f"])
         assert result.exit_code == 0
         assert "non-localhost" in result.output.lower() or "Warning" in result.output
 
     def test_localhost_no_warning(self, runner):
-        with patch("riva.web.server.run_server") as mock_run:
+        with patch("riva.web.server.run_server"):
             result = runner.invoke(cli, ["web", "--host", "127.0.0.1", "start", "-f"])
         assert result.exit_code == 0
         assert "non-localhost" not in result.output.lower()
@@ -249,9 +249,7 @@ def _make_mock_registry(installed=True, usage=None):
 class TestStatsCommand:
     def test_stats_table_output(self, runner):
         with patch("riva.cli.get_default_registry") as mock_reg:
-            mock_reg.return_value = _make_mock_registry(
-                installed=True, usage=_fake_usage_stats()
-            )
+            mock_reg.return_value = _make_mock_registry(installed=True, usage=_fake_usage_stats())
             result = runner.invoke(cli, ["stats"])
 
         assert result.exit_code == 0
@@ -259,9 +257,7 @@ class TestStatsCommand:
 
     def test_stats_json_output(self, runner):
         with patch("riva.cli.get_default_registry") as mock_reg:
-            mock_reg.return_value = _make_mock_registry(
-                installed=True, usage=_fake_usage_stats()
-            )
+            mock_reg.return_value = _make_mock_registry(installed=True, usage=_fake_usage_stats())
             result = runner.invoke(cli, ["stats", "--json"])
 
         assert result.exit_code == 0

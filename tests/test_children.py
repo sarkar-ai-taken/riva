@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, PropertyMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from riva.core.children import (
     ChildProcessInfo,
@@ -14,7 +12,7 @@ from riva.core.children import (
 )
 
 
-def _make_mock_child(pid, ppid, name="child", cpu=1.0, mem_rss=1024*1024*10, status="running"):
+def _make_mock_child(pid, ppid, name="child", cpu=1.0, mem_rss=1024 * 1024 * 10, status="running"):
     """Create a mock psutil child process."""
     child = MagicMock()
     child.pid = pid
@@ -62,8 +60,8 @@ class TestProcessTree:
 class TestProcessTreeCollector:
     @patch("riva.core.children.psutil")
     def test_collect_tree_basic(self, mock_psutil):
-        child1 = _make_mock_child(101, 100, "worker1", cpu=5.0, mem_rss=1024*1024*50)
-        child2 = _make_mock_child(102, 100, "worker2", cpu=3.0, mem_rss=1024*1024*30)
+        child1 = _make_mock_child(101, 100, "worker1", cpu=5.0, mem_rss=1024 * 1024 * 50)
+        child2 = _make_mock_child(102, 100, "worker2", cpu=3.0, mem_rss=1024 * 1024 * 30)
 
         parent = MagicMock()
         parent.children.return_value = [child1, child2]
@@ -95,6 +93,7 @@ class TestProcessTreeCollector:
     @patch("riva.core.children.psutil")
     def test_collect_tree_parent_not_found(self, mock_psutil):
         import psutil as real_psutil
+
         mock_psutil.NoSuchProcess = real_psutil.NoSuchProcess
         mock_psutil.AccessDenied = real_psutil.AccessDenied
         mock_psutil.Process.side_effect = real_psutil.NoSuchProcess(999)
@@ -108,6 +107,7 @@ class TestProcessTreeCollector:
     @patch("riva.core.children.psutil")
     def test_collect_tree_child_access_denied(self, mock_psutil):
         import psutil as real_psutil
+
         mock_psutil.NoSuchProcess = real_psutil.NoSuchProcess
         mock_psutil.AccessDenied = real_psutil.AccessDenied
         mock_psutil.ZombieProcess = real_psutil.ZombieProcess
@@ -116,9 +116,7 @@ class TestProcessTreeCollector:
         good_child = _make_mock_child(101, 100, "good", cpu=2.0)
         bad_child = MagicMock()
         bad_child.pid = 102
-        bad_child.oneshot.return_value.__enter__ = MagicMock(
-            side_effect=real_psutil.AccessDenied(102)
-        )
+        bad_child.oneshot.return_value.__enter__ = MagicMock(side_effect=real_psutil.AccessDenied(102))
 
         parent = MagicMock()
         parent.children.return_value = [good_child, bad_child]
@@ -134,6 +132,7 @@ class TestProcessTreeCollector:
     @patch("riva.core.children.psutil")
     def test_orphan_detection(self, mock_psutil):
         import psutil as real_psutil
+
         mock_psutil.NoSuchProcess = real_psutil.NoSuchProcess
         mock_psutil.AccessDenied = real_psutil.AccessDenied
         mock_psutil.ZombieProcess = real_psutil.ZombieProcess

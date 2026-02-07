@@ -1,10 +1,7 @@
 """Tests for IDE agent detectors."""
 
 import json
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from riva.agents.cline import ClineDetector
 from riva.agents.continue_dev import ContinueDevDetector
@@ -12,10 +9,10 @@ from riva.agents.cursor import CursorDetector
 from riva.agents.github_copilot import GitHubCopilotDetector
 from riva.agents.windsurf import WindsurfDetector
 
-
 # ---------------------------------------------------------------------------
 # Cursor
 # ---------------------------------------------------------------------------
+
 
 class TestCursorDetector:
     def test_properties(self):
@@ -67,6 +64,7 @@ class TestCursorDetector:
 
     def test_create_detector(self):
         from riva.agents.cursor import create_detector
+
         d = create_detector()
         assert d.agent_name == "Cursor"
 
@@ -74,6 +72,7 @@ class TestCursorDetector:
 # ---------------------------------------------------------------------------
 # GitHub Copilot
 # ---------------------------------------------------------------------------
+
 
 class TestGitHubCopilotDetector:
     def test_properties(self):
@@ -87,11 +86,14 @@ class TestGitHubCopilotDetector:
 
     def test_match_node_with_copilot(self):
         d = GitHubCopilotDetector()
-        assert d.match_process(
-            "node",
-            ["node", "/path/to/github.copilot/dist/language-server.js"],
-            "/usr/local/bin/node",
-        ) is True
+        assert (
+            d.match_process(
+                "node",
+                ["node", "/path/to/github.copilot/dist/language-server.js"],
+                "/usr/local/bin/node",
+            )
+            is True
+        )
 
     def test_no_match_plain_node(self):
         d = GitHubCopilotDetector()
@@ -116,15 +118,20 @@ class TestGitHubCopilotDetector:
         with patch.object(type(d), "config_dir", new_callable=lambda: property(lambda self: tmp_path)):
             ext_dir = tmp_path / "extensions" / "github.copilot-1.200.0"
             ext_dir.mkdir(parents=True)
-            (ext_dir / "package.json").write_text(json.dumps({
-                "version": "1.200.0",
-                "displayName": "GitHub Copilot",
-            }))
+            (ext_dir / "package.json").write_text(
+                json.dumps(
+                    {
+                        "version": "1.200.0",
+                        "displayName": "GitHub Copilot",
+                    }
+                )
+            )
             result = d.parse_config()
             assert result["version"] == "1.200.0"
 
     def test_create_detector(self):
         from riva.agents.github_copilot import create_detector
+
         d = create_detector()
         assert d.agent_name == "GitHub Copilot"
 
@@ -132,6 +139,7 @@ class TestGitHubCopilotDetector:
 # ---------------------------------------------------------------------------
 # Windsurf
 # ---------------------------------------------------------------------------
+
 
 class TestWindsurfDetector:
     def test_properties(self):
@@ -165,6 +173,7 @@ class TestWindsurfDetector:
 
     def test_create_detector(self):
         from riva.agents.windsurf import create_detector
+
         d = create_detector()
         assert d.agent_name == "Windsurf"
 
@@ -172,6 +181,7 @@ class TestWindsurfDetector:
 # ---------------------------------------------------------------------------
 # Continue.dev
 # ---------------------------------------------------------------------------
+
 
 class TestContinueDevDetector:
     def test_properties(self):
@@ -185,11 +195,14 @@ class TestContinueDevDetector:
 
     def test_match_language_server(self):
         d = ContinueDevDetector()
-        assert d.match_process(
-            "node",
-            ["node", "/path/to/continue/language-server"],
-            "/usr/bin/node",
-        ) is True
+        assert (
+            d.match_process(
+                "node",
+                ["node", "/path/to/continue/language-server"],
+                "/usr/bin/node",
+            )
+            is True
+        )
 
     def test_no_match_plain_node(self):
         d = ContinueDevDetector()
@@ -209,6 +222,7 @@ class TestContinueDevDetector:
 
     def test_create_detector(self):
         from riva.agents.continue_dev import create_detector
+
         d = create_detector()
         assert d.agent_name == "Continue"
 
@@ -216,6 +230,7 @@ class TestContinueDevDetector:
 # ---------------------------------------------------------------------------
 # Cline
 # ---------------------------------------------------------------------------
+
 
 class TestClineDetector:
     def test_properties(self):
@@ -225,11 +240,14 @@ class TestClineDetector:
 
     def test_match_claude_dev_in_cmdline(self):
         d = ClineDetector()
-        assert d.match_process(
-            "node",
-            ["node", "/path/to/saoudrizwan.claude-dev/out/extension.js"],
-            "/usr/bin/node",
-        ) is True
+        assert (
+            d.match_process(
+                "node",
+                ["node", "/path/to/saoudrizwan.claude-dev/out/extension.js"],
+                "/usr/bin/node",
+            )
+            is True
+        )
 
     def test_no_match(self):
         d = ClineDetector()
@@ -252,15 +270,20 @@ class TestClineDetector:
         with patch.object(type(d), "config_dir", new_callable=lambda: property(lambda self: tmp_path)):
             ext_dir = tmp_path / "saoudrizwan.claude-dev-3.0.0"
             ext_dir.mkdir()
-            (ext_dir / "package.json").write_text(json.dumps({
-                "version": "3.0.0",
-                "displayName": "Cline",
-            }))
+            (ext_dir / "package.json").write_text(
+                json.dumps(
+                    {
+                        "version": "3.0.0",
+                        "displayName": "Cline",
+                    }
+                )
+            )
             result = d.parse_config()
             assert result["version"] == "3.0.0"
 
     def test_create_detector(self):
         from riva.agents.cline import create_detector
+
         d = create_detector()
         assert d.agent_name == "Cline"
 
@@ -269,9 +292,11 @@ class TestClineDetector:
 # Registry integration
 # ---------------------------------------------------------------------------
 
+
 class TestRegistryWithNewDetectors:
     def test_registry_has_all_detectors(self):
         from riva.agents.registry import get_default_registry
+
         registry = get_default_registry()
         names = [d.agent_name for d in registry.detectors]
         assert "Cursor" in names

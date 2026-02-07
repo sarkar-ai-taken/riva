@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riva"
-version = "0.2.2"
+version = "0.2.3"
 description = "AI Agent Task Manager - discover and monitor AI coding agents running on your machine"
 readme = "README.md"
 license = {text = "MIT"}
@@ -45,6 +45,7 @@ Homepage = "https://github.com/sarkar-ai-taken/riva"
 Repository = "https://github.com/sarkar-ai-taken/riva"
 Issues = "https://github.com/sarkar-ai-taken/riva/issues"
 Changelog = "https://github.com/sarkar-ai-taken/riva/blob/main/HISTORY.md"
+Discord = "https://discord.com/channels/1467923903597908244/1467926078356984110"
 
 [project.scripts]
 riva = "riva.cli:cli"
@@ -53,7 +54,7 @@ riva = "riva.cli:cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-riva = ["web/static/**/*"]
+riva = ["web/static/**/*", "tray/*.swift"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

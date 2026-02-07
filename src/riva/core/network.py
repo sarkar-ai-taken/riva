@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 
 import psutil
 
-
 # Known API domains mapped to service names
 KNOWN_API_DOMAINS = {
     "api.anthropic.com": "Anthropic API",
@@ -108,16 +107,18 @@ def collect_connections(pid: int | None) -> list[ConnectionInfo]:
 
         known_service, is_tls = _classify_connection(remote_addr, remote_port, hostname)
 
-        connections.append(ConnectionInfo(
-            local_addr=local_addr,
-            local_port=local_port,
-            remote_addr=remote_addr,
-            remote_port=remote_port,
-            status=status,
-            hostname=hostname,
-            known_service=known_service,
-            is_tls=is_tls,
-        ))
+        connections.append(
+            ConnectionInfo(
+                local_addr=local_addr,
+                local_port=local_port,
+                remote_addr=remote_addr,
+                remote_port=remote_port,
+                status=status,
+                hostname=hostname,
+                known_service=known_service,
+                is_tls=is_tls,
+            )
+        )
 
     return connections
 
@@ -139,9 +140,11 @@ def collect_all_connections(instances: list) -> list[NetworkSnapshot]:
         if inst.status != AgentStatus.RUNNING or not inst.pid:
             continue
         conns = collect_connections(inst.pid)
-        snapshots.append(NetworkSnapshot(
-            agent_name=inst.name,
-            pid=inst.pid,
-            connections=conns,
-        ))
+        snapshots.append(
+            NetworkSnapshot(
+                agent_name=inst.name,
+                pid=inst.pid,
+                connections=conns,
+            )
+        )
     return snapshots

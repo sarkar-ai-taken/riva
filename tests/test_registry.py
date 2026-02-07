@@ -1,15 +1,12 @@
 """Tests for riva.agents.registry."""
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from riva.agents.base import AgentDetector, SimpleAgentDetector
+from riva.agents.base import SimpleAgentDetector
 from riva.agents.registry import (
-    AgentRegistry,
     _REGISTERED_FACTORIES,
+    AgentRegistry,
     _instantiate,
     get_default_registry,
     register_agent,
@@ -29,9 +26,7 @@ class TestInstantiate:
     def test_instantiate_class(self):
         class Dummy(SimpleAgentDetector):
             def __init__(self):
-                super().__init__(
-                    name="Dummy", binaries=["d"], config="/tmp/x", api="a"
-                )
+                super().__init__(name="Dummy", binaries=["d"], config="/tmp/x", api="a")
 
         result = _instantiate(Dummy)
         assert result is not None

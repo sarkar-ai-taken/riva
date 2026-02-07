@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from riva.agents.autogen import AutoGenDetector
 from riva.agents.claude_code import ClaudeCodeDetector
 from riva.agents.codex_cli import CodexCLIDetector
@@ -14,10 +12,10 @@ from riva.agents.gemini_cli import GeminiCLIDetector
 from riva.agents.langgraph import LangGraphDetector
 from riva.agents.openclaw import OpenClawDetector
 
-
 # ---------------------------------------------------------------------------
 # Claude Code
 # ---------------------------------------------------------------------------
+
 
 class TestClaudeCodeDetector:
     def test_properties(self):
@@ -64,7 +62,8 @@ class TestClaudeCodeDetector:
     def test_parse_config_missing_dir(self):
         d = ClaudeCodeDetector()
         with patch.object(
-            type(d), "config_dir",
+            type(d),
+            "config_dir",
             new_callable=lambda: property(lambda self: Path("/tmp/riva_nonexistent_claude")),
         ):
             result = d.parse_config()
@@ -80,6 +79,7 @@ class TestClaudeCodeDetector:
 # ---------------------------------------------------------------------------
 # Codex CLI
 # ---------------------------------------------------------------------------
+
 
 class TestCodexCLIDetector:
     def test_properties(self):
@@ -99,9 +99,7 @@ class TestCodexCLIDetector:
     def test_parse_config_toml(self, tmp_path):
         d = CodexCLIDetector()
         with patch.object(type(d), "config_dir", new_callable=lambda: property(lambda self: tmp_path)):
-            (tmp_path / "config.toml").write_text(
-                'model = "gpt-5"\napi_key = "sk-123"\n'
-            )
+            (tmp_path / "config.toml").write_text('model = "gpt-5"\napi_key = "sk-123"\n')
             result = d.parse_config()
             assert result["settings"]["model"] == "gpt-5"
             assert "api_key" not in result["settings"]
@@ -125,6 +123,7 @@ class TestCodexCLIDetector:
 # Gemini CLI
 # ---------------------------------------------------------------------------
 
+
 class TestGeminiCLIDetector:
     def test_properties(self):
         d = GeminiCLIDetector()
@@ -138,11 +137,14 @@ class TestGeminiCLIDetector:
 
     def test_match_node_with_gemini_cli(self):
         d = GeminiCLIDetector()
-        assert d.match_process(
-            "node",
-            ["/usr/local/bin/node", "/path/to/@google/gemini-cli/index.js"],
-            "/usr/local/bin/node",
-        ) is True
+        assert (
+            d.match_process(
+                "node",
+                ["/usr/local/bin/node", "/path/to/@google/gemini-cli/index.js"],
+                "/usr/local/bin/node",
+            )
+            is True
+        )
 
     def test_no_match_plain_node(self):
         d = GeminiCLIDetector()
@@ -167,6 +169,7 @@ class TestGeminiCLIDetector:
 # ---------------------------------------------------------------------------
 # OpenClaw
 # ---------------------------------------------------------------------------
+
 
 class TestOpenClawDetector:
     def test_properties(self):
@@ -195,9 +198,7 @@ class TestOpenClawDetector:
     def test_parse_config(self, tmp_path):
         d = OpenClawDetector()
         with patch.object(type(d), "config_dir", new_callable=lambda: property(lambda self: tmp_path)):
-            (tmp_path / "config.json").write_text(
-                json.dumps({"backend": "ollama", "api_key": "sk-x"})
-            )
+            (tmp_path / "config.json").write_text(json.dumps({"backend": "ollama", "api_key": "sk-x"}))
             result = d.parse_config()
             assert result["settings"]["backend"] == "ollama"
             assert "api_key" not in result["settings"]
@@ -213,6 +214,7 @@ class TestOpenClawDetector:
 # LangGraph
 # ---------------------------------------------------------------------------
 
+
 class TestLangGraphDetector:
     def test_properties(self):
         d = LangGraphDetector()
@@ -226,15 +228,11 @@ class TestLangGraphDetector:
 
     def test_match_python_with_langgraph(self):
         d = LangGraphDetector()
-        assert d.match_process(
-            "python", ["python", "-m", "langgraph", "serve"], "/usr/bin/python"
-        ) is True
+        assert d.match_process("python", ["python", "-m", "langgraph", "serve"], "/usr/bin/python") is True
 
     def test_match_python_with_langchain(self):
         d = LangGraphDetector()
-        assert d.match_process(
-            "python3", ["python3", "run_langchain_agent.py"], "/usr/bin/python3"
-        ) is True
+        assert d.match_process("python3", ["python3", "run_langchain_agent.py"], "/usr/bin/python3") is True
 
     def test_no_match_plain_python(self):
         d = LangGraphDetector()
@@ -258,6 +256,7 @@ class TestLangGraphDetector:
 # CrewAI
 # ---------------------------------------------------------------------------
 
+
 class TestCrewAIDetector:
     def test_properties(self):
         d = CrewAIDetector()
@@ -271,9 +270,7 @@ class TestCrewAIDetector:
 
     def test_match_python_with_crewai(self):
         d = CrewAIDetector()
-        assert d.match_process(
-            "python", ["python", "-m", "crewai", "run"], "/usr/bin/python"
-        ) is True
+        assert d.match_process("python", ["python", "-m", "crewai", "run"], "/usr/bin/python") is True
 
     def test_no_match_plain_python(self):
         d = CrewAIDetector()
@@ -297,6 +294,7 @@ class TestCrewAIDetector:
 # AutoGen
 # ---------------------------------------------------------------------------
 
+
 class TestAutoGenDetector:
     def test_properties(self):
         d = AutoGenDetector()
@@ -309,15 +307,11 @@ class TestAutoGenDetector:
 
     def test_match_python_with_autogen(self):
         d = AutoGenDetector()
-        assert d.match_process(
-            "python", ["python", "-m", "autogen", "serve"], "/usr/bin/python"
-        ) is True
+        assert d.match_process("python", ["python", "-m", "autogen", "serve"], "/usr/bin/python") is True
 
     def test_match_python3_with_autogen_script(self):
         d = AutoGenDetector()
-        assert d.match_process(
-            "python3", ["python3", "run_autogen_chat.py"], "/usr/bin/python3"
-        ) is True
+        assert d.match_process("python3", ["python3", "run_autogen_chat.py"], "/usr/bin/python3") is True
 
     def test_no_match_plain_python(self):
         d = AutoGenDetector()

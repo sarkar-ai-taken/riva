@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from riva.core.env_scanner import _is_secret, scan_env_vars
 
 

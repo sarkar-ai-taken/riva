@@ -1,8 +1,5 @@
 """Tests for riva.tui.components."""
 
-from collections import deque
-
-import pytest
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -10,11 +7,11 @@ from rich.text import Text
 from riva.agents.base import AgentInstance, AgentStatus
 from riva.core.monitor import AgentHistory, ResourceSnapshot
 from riva.core.usage_stats import (
+    DailyStats,
     ModelStats,
     TokenUsage,
     ToolCallStats,
     UsageStats,
-    DailyStats,
 )
 from riva.tui.components import (
     agent_status_text,
@@ -97,7 +94,8 @@ class TestBuildAgentTable:
 class TestBuildAgentCard:
     def test_installed_card(self):
         inst = AgentInstance(
-            name="Test", status=AgentStatus.INSTALLED,
+            name="Test",
+            status=AgentStatus.INSTALLED,
             api_domain="api.test.dev",
         )
         panel = build_agent_card(inst)
@@ -105,9 +103,13 @@ class TestBuildAgentCard:
 
     def test_running_card_with_history(self):
         inst = AgentInstance(
-            name="Test", status=AgentStatus.RUNNING,
-            pid=42, cpu_percent=10.0, memory_mb=256.0,
-            uptime_seconds=3600, working_directory="/home",
+            name="Test",
+            status=AgentStatus.RUNNING,
+            pid=42,
+            cpu_percent=10.0,
+            memory_mb=256.0,
+            uptime_seconds=3600,
+            working_directory="/home",
             api_domain="api.test.dev",
         )
         history = AgentHistory(agent_name="Test", pid=42)
@@ -119,8 +121,11 @@ class TestBuildAgentCard:
 
     def test_running_card_without_history(self):
         inst = AgentInstance(
-            name="Test", status=AgentStatus.RUNNING,
-            pid=42, cpu_percent=10.0, memory_mb=256.0,
+            name="Test",
+            status=AgentStatus.RUNNING,
+            pid=42,
+            cpu_percent=10.0,
+            memory_mb=256.0,
             uptime_seconds=60,
         )
         panel = build_agent_card(inst, None)
