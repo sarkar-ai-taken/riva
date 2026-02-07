@@ -7,6 +7,7 @@ Observe, monitor, and control local AI agents running on your machine.
   <a href="https://pypi.org/project/riva/"><img src="https://img.shields.io/pypi/v/riva.svg?style=for-the-badge" alt="PyPI"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/python-%3E%3D3.11-green.svg?style=for-the-badge" alt="Python"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20WSL2-lightgrey.svg?style=for-the-badge" alt="Platform"></a>
+  <a href="https://discord.com/channels/1467923903597908244/1467926078356984110"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 Riva is a **local-first observability and control plane for AI agents**.
@@ -15,11 +16,15 @@ It helps you understand what agents are running on your machine, what they are d
 As agent frameworks push toward autonomy, visibility often disappears.
 Riva exists to restore **clarity, safety, and trust**.
 
-[Getting Started](#quick-start) · [How it works](#how-it-works) · [CLI Reference](#cli-reference) · [Web Dashboard](#web-dashboard) · [Security](#security) · [Contributing](#contributing)
+[Getting Started](#quick-start) · [How it works](#how-it-works) · [CLI Reference](#cli-reference) · [Web Dashboard](#web-dashboard) · [Security](#security) · [Contributing](#contributing) · [Discord](https://discord.com/channels/1467923903597908244/1467926078356984110)
 
 ---
 
 ## Demo
+
+<p align="center">
+  <img src="assets/riva-fast.gif" alt="Riva Demo" width="800">
+</p>
 
 | Agent Overview | Infosec Monitoring |
 |:---:|:---:|
@@ -41,6 +46,8 @@ Local Agents (Claude Code / Codex CLI / Gemini CLI / LangGraph / CrewAI / AutoGe
         +--------+---------+
         |        |         |
       CLI      TUI    Web Dashboard
+                |
+           System Tray (macOS)
 ```
 
 Riva runs entirely on your machine.
@@ -55,7 +62,9 @@ It **observes agent behavior** but does not execute agent actions.
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
 - **Environment scanning** — detect exposed API keys in environment variables
+- **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
+- **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
 - **Web dashboard** — Flask-based dashboard with REST API, security headers, and optional auth token
 - **Framework-agnostic** — works across multiple agent frameworks and custom agents
 - **Local-first** — no cloud, no telemetry, no hidden data flows
@@ -104,6 +113,7 @@ It makes **agent behavior visible**.
 - **macOS** (Ventura, Sonoma, Sequoia) or **Linux**
 - Windows via **WSL2**
 - Python 3.11+
+- **System tray** (optional, macOS only): Xcode Command Line Tools (`xcode-select --install`)
 
 ---
 
@@ -155,6 +165,30 @@ Launch the live TUI dashboard with real-time resource monitoring.
 ```bash
 riva watch
 ```
+
+### `riva tray`
+
+Launch the native macOS system tray (menu bar app). Provides quick access to both the TUI and web dashboards, plus scan and audit actions.
+
+```bash
+riva tray                      # Default (web on 127.0.0.1:8585)
+riva tray --port 9090          # Custom web port
+riva tray --host 0.0.0.0       # Custom web host
+```
+
+Requires Xcode Command Line Tools (`xcode-select --install`). The Swift binary is compiled on first launch and cached at `~/.cache/riva/tray-mac`.
+
+**Menu items:**
+
+| Action | Description |
+|--------|-------------|
+| Open TUI Dashboard | Opens Terminal.app with `riva watch` |
+| Open Web Dashboard | Opens browser to the web dashboard URL |
+| Start Web Server | Starts the web daemon in the background |
+| Stop Web Server | Stops the running web daemon |
+| Quick Scan | Opens Terminal.app with `riva scan` |
+| Security Audit | Opens Terminal.app with `riva audit` |
+| Quit | Exits the tray |
 
 ### `riva stats`
 
@@ -352,8 +386,12 @@ src/riva/
 │   ├── audit.py         # Security audit checks
 │   ├── env_scanner.py   # Environment variable scanning
 │   ├── monitor.py       # Resource monitoring (CPU, memory)
+│   ├── sandbox.py       # Sandbox / container detection
 │   ├── scanner.py       # Process scanning
 │   └── usage_stats.py   # Token/tool usage parsing
+├── tray/                # System tray (macOS)
+│   ├── manager.py       # Swift binary compilation, spawn, IPC
+│   └── tray_mac.swift   # Native macOS NSStatusBar app
 ├── tui/                 # Terminal UI (Rich)
 │   ├── components.py    # Rich table builders
 │   └── dashboard.py     # Live dashboard
@@ -403,7 +441,7 @@ ruff format --check src/ tests/
 
 ```bash
 pip install mypy types-psutil
-mypy src/riva/ --ignore-missing-imports --no-strict
+mypy src/riva/ --ignore-missing-imports
 ```
 
 ---
@@ -451,7 +489,7 @@ Expect:
 - API changes
 - Active design discussions
 
-Feedback is highly encouraged.
+Feedback is highly encouraged — join the conversation on [Discord](https://discord.com/channels/1467923903597908244/1467926078356984110).
 
 ---
 
@@ -467,7 +505,8 @@ Riva exists to make local AI agents **inspectable, understandable, and safe**.
 
 We welcome contributions and design discussions.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
+- Join the [Discord](https://discord.com/channels/1467923903597908244/1467926078356984110) for questions and discussion
 
 ---
 

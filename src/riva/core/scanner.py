@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import psutil
 
@@ -45,9 +45,7 @@ class ProcessScanner:
 
         processes: list[ProcessInfo] = []
         seen_pids: set[int] = set()
-        for proc in psutil.process_iter(
-            ["pid", "name", "cmdline", "exe", "cpu_percent", "memory_info", "create_time"]
-        ):
+        for proc in psutil.process_iter(["pid", "name", "cmdline", "exe", "cpu_percent", "memory_info", "create_time"]):
             try:
                 info = proc.info
                 pid = info["pid"]

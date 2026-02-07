@@ -78,4 +78,4 @@ jobs:
           pip install mypy types-psutil
 
       - name: Run mypy
-        run: mypy src/riva/ --ignore-missing-imports --no-strict
+        run: mypy src/riva/ --ignore-missing-imports

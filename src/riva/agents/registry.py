@@ -158,9 +158,7 @@ class AgentRegistry:
 
         for path in sorted(plugin_dir.glob("*.py")):
             try:
-                spec = importlib.util.spec_from_file_location(
-                    f"riva_plugin_{path.stem}", path
-                )
+                spec = importlib.util.spec_from_file_location(f"riva_plugin_{path.stem}", path)
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)

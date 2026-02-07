@@ -35,10 +35,7 @@ def scan_env_vars() -> list[dict[str, str]]:
     """
     results: list[dict[str, str]] = []
     for key, value in sorted(os.environ.items()):
-        matched = any(
-            key.upper().startswith(pattern) or key.upper() == pattern
-            for pattern in AI_ENV_PATTERNS
-        )
+        matched = any(key.upper().startswith(pattern) or key.upper() == pattern for pattern in AI_ENV_PATTERNS)
         if not matched:
             continue
 

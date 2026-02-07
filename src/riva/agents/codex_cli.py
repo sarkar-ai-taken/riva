@@ -67,9 +67,7 @@ class CodexCLIDetector(AgentDetector):
         model_tokens: dict[str, TokenUsage] = defaultdict(TokenUsage)
         tool_counts: dict[str, int] = defaultdict(int)
         tool_last_used: dict[str, str] = {}
-        daily_counts: dict[str, dict] = defaultdict(
-            lambda: {"messages": 0, "sessions": 0, "tokens": 0, "tools": 0}
-        )
+        daily_counts: dict[str, dict] = defaultdict(lambda: {"messages": 0, "sessions": 0, "tokens": 0, "tools": 0})
         session_ids: set[str] = set()
         total_messages = 0
         total_tool_calls = 0
@@ -95,18 +93,13 @@ class CodexCLIDetector(AgentDetector):
                     usage = model_tokens[model]
                     usage.input_tokens += payload.get("input_tokens", 0)
                     usage.output_tokens += payload.get("output_tokens", 0)
-                    usage.cache_read_input_tokens += payload.get(
-                        "cache_read_input_tokens", 0
-                    )
-                    usage.cache_creation_input_tokens += payload.get(
-                        "cache_creation_input_tokens", 0
-                    )
+                    usage.cache_read_input_tokens += payload.get("cache_read_input_tokens", 0)
+                    usage.cache_creation_input_tokens += payload.get("cache_creation_input_tokens", 0)
                     total_messages += 1
                     if date_key:
                         daily_counts[date_key]["messages"] += 1
-                        daily_counts[date_key]["tokens"] += (
-                            payload.get("input_tokens", 0)
-                            + payload.get("output_tokens", 0)
+                        daily_counts[date_key]["tokens"] += payload.get("input_tokens", 0) + payload.get(
+                            "output_tokens", 0
                         )
 
                 # Function calls (tools)

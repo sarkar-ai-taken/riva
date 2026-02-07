@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -46,6 +45,7 @@ def _get_storage():
     if _storage is None:
         try:
             from riva.core.storage import RivaStorage
+
             _storage = RivaStorage()
         except Exception:
             pass
@@ -84,6 +84,7 @@ def create_app(auth_token: str | None = None) -> Flask:
         return response
 
     if auth_token:
+
         @app.before_request
         def check_auth_token():
             if request.path.startswith("/api/"):
@@ -106,24 +107,27 @@ def create_app(auth_token: str | None = None) -> Flask:
         instances = monitor.instances
         agents = []
         for inst in instances:
-            agents.append({
-                "name": inst.name,
-                "status": inst.status.value,
-                "pid": inst.pid,
-                "binary_path": inst.binary_path,
-                "config_dir": inst.config_dir,
-                "api_domain": inst.api_domain,
-                "cpu_percent": round(inst.cpu_percent, 1),
-                "memory_mb": round(inst.memory_mb, 1),
-                "memory_formatted": format_mb(inst.memory_mb),
-                "uptime_seconds": round(inst.uptime_seconds, 1),
-                "uptime_formatted": format_uptime(inst.uptime_seconds),
-                "working_directory": inst.working_directory,
-                "parent_pid": inst.parent_pid,
-                "parent_name": inst.parent_name,
-                "launched_by": inst.launched_by,
-                "launcher": inst.extra.get("launcher"),
-            })
+            agents.append(
+                {
+                    "name": inst.name,
+                    "status": inst.status.value,
+                    "pid": inst.pid,
+                    "binary_path": inst.binary_path,
+                    "config_dir": inst.config_dir,
+                    "api_domain": inst.api_domain,
+                    "cpu_percent": round(inst.cpu_percent, 1),
+                    "memory_mb": round(inst.memory_mb, 1),
+                    "memory_formatted": format_mb(inst.memory_mb),
+                    "uptime_seconds": round(inst.uptime_seconds, 1),
+                    "uptime_formatted": format_uptime(inst.uptime_seconds),
+                    "working_directory": inst.working_directory,
+                    "parent_pid": inst.parent_pid,
+                    "parent_name": inst.parent_name,
+                    "launched_by": inst.launched_by,
+                    "launcher": inst.extra.get("launcher"),
+                    "sandbox": inst.extra.get("sandbox"),
+                }
+            )
         return jsonify({"agents": agents, "timestamp": time.time()})
 
     @app.route("/api/agents/history")
@@ -151,12 +155,14 @@ def create_app(auth_token: str | None = None) -> Flask:
             if inst.status != AgentStatus.RUNNING or not inst.pid:
                 continue
             network = inst.extra.get("network", [])
-            result.append({
-                "agent": inst.name,
-                "pid": inst.pid,
-                "connection_count": len(network),
-                "connections": network,
-            })
+            result.append(
+                {
+                    "agent": inst.name,
+                    "pid": inst.pid,
+                    "connection_count": len(network),
+                    "connections": network,
+                }
+            )
         return jsonify({"network": result, "timestamp": time.time()})
 
     # ---- Audit endpoint ---------------------------------------------------
@@ -165,6 +171,7 @@ def create_app(auth_token: str | None = None) -> Flask:
     def api_audit():
         def _fetch():
             from riva.core.audit import run_audit
+
             include_network = request.args.get("network", "false").lower() == "true"
             results = run_audit(include_network=include_network)
 
@@ -187,6 +194,7 @@ def create_app(auth_token: str | None = None) -> Flask:
                 }
                 for r in results
             ]
+
         return jsonify({"audit": _cached("audit", _fetch), "timestamp": time.time()})
 
     # ---- History endpoints ------------------------------------------------
@@ -278,6 +286,7 @@ def create_app(auth_token: str | None = None) -> Flask:
     def api_env():
         def _fetch():
             return scan_env_vars()
+
         return jsonify({"env_vars": _cached("env", _fetch)})
 
     @app.route("/api/registry")
@@ -286,15 +295,18 @@ def create_app(auth_token: str | None = None) -> Flask:
             registry = _get_registry()
             agents = []
             for det in registry.detectors:
-                agents.append({
-                    "name": det.agent_name,
-                    "binaries": det.binary_names,
-                    "config_dir": str(det.config_dir),
-                    "config_dir_exists": det.config_dir.exists(),
-                    "api_domain": det.api_domain,
-                    "installed": det.is_installed(),
-                })
+                agents.append(
+                    {
+                        "name": det.agent_name,
+                        "binaries": det.binary_names,
+                        "config_dir": str(det.config_dir),
+                        "config_dir_exists": det.config_dir.exists(),
+                        "api_domain": det.api_domain,
+                        "installed": det.is_installed(),
+                    }
+                )
             return agents
+
         return jsonify({"agents": _cached("registry", _fetch)})
 
     # ---- Orphan endpoint ---------------------------------------------------
@@ -346,11 +358,14 @@ def create_app(auth_token: str | None = None) -> Flask:
                 if not det.is_installed():
                     continue
                 parsed = det.parse_config()
-                configs.append({
-                    "name": det.agent_name,
-                    "config": parsed,
-                })
+                configs.append(
+                    {
+                        "name": det.agent_name,
+                        "config": parsed,
+                    }
+                )
             return configs
+
         return jsonify({"configs": _cached("config", _fetch)})
 
     return app

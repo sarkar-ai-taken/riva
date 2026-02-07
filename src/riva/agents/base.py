@@ -51,11 +51,7 @@ SECRET_KEYWORDS = frozenset({"key", "token", "secret", "password", "credential"}
 
 def filter_secrets(data: dict) -> dict:
     """Return a copy of `data` with secret-looking keys removed."""
-    return {
-        k: v
-        for k, v in data.items()
-        if not any(s in k.lower() for s in SECRET_KEYWORDS)
-    }
+    return {k: v for k, v in data.items() if not any(s in k.lower() for s in SECRET_KEYWORDS)}
 
 
 class AgentDetector(ABC):
@@ -194,6 +190,7 @@ class AgentDetector(ABC):
 # ---------------------------------------------------------------------------
 # Data-driven detector for simple agents
 # ---------------------------------------------------------------------------
+
 
 class SimpleAgentDetector(AgentDetector):
     """A data-driven detector that needs no subclassing.

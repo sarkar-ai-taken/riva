@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from riva.agents.base import AgentInstance, AgentStatus
 from riva.core.network import (
     KNOWN_API_DOMAINS,
     ConnectionInfo,
     NetworkSnapshot,
     _classify_connection,
-    _reverse_dns,
     collect_all_connections,
     collect_connections,
 )
@@ -82,12 +79,14 @@ class TestCollectConnections:
     @patch("riva.core.network.psutil.Process")
     def test_access_denied(self, mock_process):
         import psutil
+
         mock_process.side_effect = psutil.AccessDenied(123)
         assert collect_connections(123) == []
 
     @patch("riva.core.network.psutil.Process")
     def test_no_such_process(self, mock_process):
         import psutil
+
         mock_process.side_effect = psutil.NoSuchProcess(123)
         assert collect_connections(123) == []
 

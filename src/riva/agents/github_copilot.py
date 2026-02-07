@@ -57,8 +57,7 @@ class GitHubCopilotDetector(AgentDetector):
         if extensions_dir.is_dir():
             try:
                 copilot_dirs = sorted(
-                    [d for d in extensions_dir.iterdir()
-                     if d.name.startswith("github.copilot-") and d.is_dir()],
+                    [d for d in extensions_dir.iterdir() if d.name.startswith("github.copilot-") and d.is_dir()],
                     key=lambda p: p.name,
                     reverse=True,
                 )
@@ -77,8 +76,9 @@ class GitHubCopilotDetector(AgentDetector):
                             pass
 
                     # List of Copilot-related extensions
-                    all_copilot = [d.name for d in extensions_dir.iterdir()
-                                   if d.name.startswith("github.copilot") and d.is_dir()]
+                    all_copilot = [
+                        d.name for d in extensions_dir.iterdir() if d.name.startswith("github.copilot") and d.is_dir()
+                    ]
                     if all_copilot:
                         config["extensions"] = all_copilot
             except OSError:

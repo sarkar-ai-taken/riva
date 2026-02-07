@@ -5,9 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import psutil
-import pytest
 
-from riva.core.launcher import LaunchType, LauncherInfo, classify_launcher
+from riva.core.launcher import LauncherInfo, LaunchType, classify_launcher
 
 
 def _mock_process(pid: int, name: str, exe: str = "", cmdline: list[str] | None = None):

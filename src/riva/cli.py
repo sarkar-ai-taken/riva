@@ -207,10 +207,21 @@ def audit(as_json: bool, include_network: bool) -> None:
     results = run_audit(include_network=include_network)
 
     if as_json:
-        click.echo(json.dumps(
-            [{"check": r.check, "status": r.status, "detail": r.detail, "severity": r.severity, "category": r.category} for r in results],
-            indent=2,
-        ))
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "check": r.check,
+                        "status": r.status,
+                        "detail": r.detail,
+                        "severity": r.severity,
+                        "category": r.category,
+                    }
+                    for r in results
+                ],
+                indent=2,
+            )
+        )
     else:
         console = Console()
         table = Table(
@@ -226,8 +237,11 @@ def audit(as_json: bool, include_network: bool) -> None:
 
         status_style = {"pass": "bold green", "warn": "bold yellow", "fail": "bold red"}
         severity_style = {
-            "info": "dim", "low": "blue", "medium": "yellow",
-            "high": "bold red", "critical": "bold red on white",
+            "info": "dim",
+            "low": "blue",
+            "medium": "yellow",
+            "high": "bold red",
+            "critical": "bold red on white",
         }
         for r in results:
             style = status_style.get(r.status, "")
@@ -257,22 +271,24 @@ def network(as_json: bool) -> None:
     if as_json:
         output = []
         for snap in snapshots:
-            output.append({
-                "agent": snap.agent_name,
-                "pid": snap.pid,
-                "connection_count": snap.connection_count,
-                "connections": [
-                    {
-                        "local": f"{c.local_addr}:{c.local_port}",
-                        "remote": f"{c.remote_addr}:{c.remote_port}",
-                        "status": c.status,
-                        "hostname": c.hostname,
-                        "known_service": c.known_service,
-                        "is_tls": c.is_tls,
-                    }
-                    for c in snap.connections
-                ],
-            })
+            output.append(
+                {
+                    "agent": snap.agent_name,
+                    "pid": snap.pid,
+                    "connection_count": snap.connection_count,
+                    "connections": [
+                        {
+                            "local": f"{c.local_addr}:{c.local_port}",
+                            "remote": f"{c.remote_addr}:{c.remote_port}",
+                            "status": c.status,
+                            "hostname": c.hostname,
+                            "known_service": c.known_service,
+                            "is_tls": c.is_tls,
+                        }
+                        for c in snap.connections
+                    ],
+                }
+            )
         click.echo(json.dumps(output, indent=2))
     else:
         console = Console()
@@ -295,7 +311,15 @@ def network(as_json: bool) -> None:
             table.add_column("TLS", min_width=5)
 
             for c in snap.connections:
-                status_style = "green" if c.status == "ESTABLISHED" else "yellow" if c.status == "CLOSE_WAIT" else "red" if c.status == "TIME_WAIT" else ""
+                status_style = (
+                    "green"
+                    if c.status == "ESTABLISHED"
+                    else "yellow"
+                    if c.status == "CLOSE_WAIT"
+                    else "red"
+                    if c.status == "TIME_WAIT"
+                    else ""
+                )
                 tls_str = "[green]✓[/green]" if c.is_tls else "[dim]✗[/dim]"
                 table.add_row(
                     f"{c.local_addr}:{c.local_port}",
@@ -346,6 +370,7 @@ def history(hours: float, agent_name: str | None, as_json: bool) -> None:
             table.add_column("Status", min_width=10)
 
             import datetime
+
             for s in snapshots[:100]:  # Limit display
                 ts = datetime.datetime.fromtimestamp(s["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
                 table.add_row(
@@ -414,7 +439,7 @@ def web_start(ctx: click.Context, foreground: bool) -> None:
             raise SystemExit(1) from exc
         console.print(f"\n[bold cyan]RIVA Web Dashboard[/bold cyan] started (PID {pid})")
         console.print(f"  URL: http://{host}:{port}")
-        console.print(f"  Logs: ~/.config/riva/web.log\n")
+        console.print("  Logs: ~/.config/riva/web.log\n")
 
 
 @web.command(name="stop")
@@ -496,25 +521,27 @@ def children(as_json: bool) -> None:
     if as_json:
         output = []
         for tree in trees:
-            output.append({
-                "agent_name": tree.agent_name,
-                "parent_pid": tree.parent_pid,
-                "child_count": tree.child_count,
-                "tree_cpu_percent": tree.tree_cpu_percent,
-                "tree_memory_mb": tree.tree_memory_mb,
-                "children": [
-                    {
-                        "pid": c.pid,
-                        "ppid": c.ppid,
-                        "name": c.name,
-                        "exe": c.exe,
-                        "cpu_percent": c.cpu_percent,
-                        "memory_mb": round(c.memory_mb, 2),
-                        "status": c.status,
-                    }
-                    for c in tree.children
-                ],
-            })
+            output.append(
+                {
+                    "agent_name": tree.agent_name,
+                    "parent_pid": tree.parent_pid,
+                    "child_count": tree.child_count,
+                    "tree_cpu_percent": tree.tree_cpu_percent,
+                    "tree_memory_mb": tree.tree_memory_mb,
+                    "children": [
+                        {
+                            "pid": c.pid,
+                            "ppid": c.ppid,
+                            "name": c.name,
+                            "exe": c.exe,
+                            "cpu_percent": c.cpu_percent,
+                            "memory_mb": round(c.memory_mb, 2),
+                            "status": c.status,
+                        }
+                        for c in tree.children
+                    ],
+                }
+            )
         click.echo(json.dumps(output, indent=2))
     else:
         console = Console()
@@ -524,7 +551,10 @@ def children(as_json: bool) -> None:
 
         for tree in trees:
             table = Table(
-                title=f"{tree.agent_name} (PID {tree.parent_pid}) — {tree.child_count} children, CPU {tree.tree_cpu_percent}%, Mem {tree.tree_memory_mb:.1f} MB",
+                title=(
+                    f"{tree.agent_name} (PID {tree.parent_pid}) — {tree.child_count} children, "
+                    f"CPU {tree.tree_cpu_percent}%, Mem {tree.tree_memory_mb:.1f} MB"
+                ),
                 expand=True,
                 title_style="bold cyan",
                 border_style="bright_blue",
@@ -590,6 +620,7 @@ def orphans(hours: float, show_all: bool, as_json: bool) -> None:
             table.add_column("Resolved", min_width=20)
 
             import datetime
+
             for o in orphan_list:
                 detected = datetime.datetime.fromtimestamp(o["detected_at"]).strftime("%Y-%m-%d %H:%M:%S")
                 resolved = (
@@ -680,13 +711,18 @@ def replay(at_time: str | None, hours: float, as_json: bool) -> None:
             # Show available time ranges
             timestamps = storage.get_snapshot_timestamps(hours=hours)
             if as_json:
-                click.echo(json.dumps({
-                    "snapshot_count": len(timestamps),
-                    "hours": hours,
-                    "earliest": timestamps[0] if timestamps else None,
-                    "latest": timestamps[-1] if timestamps else None,
-                    "timestamps": timestamps,
-                }, indent=2))
+                click.echo(
+                    json.dumps(
+                        {
+                            "snapshot_count": len(timestamps),
+                            "hours": hours,
+                            "earliest": timestamps[0] if timestamps else None,
+                            "latest": timestamps[-1] if timestamps else None,
+                            "timestamps": timestamps,
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console = Console()
                 if not timestamps:
@@ -695,13 +731,24 @@ def replay(at_time: str | None, hours: float, as_json: bool) -> None:
 
                 earliest = datetime.datetime.fromtimestamp(timestamps[0]).strftime("%Y-%m-%d %H:%M:%S")
                 latest = datetime.datetime.fromtimestamp(timestamps[-1]).strftime("%Y-%m-%d %H:%M:%S")
-                console.print(f"\n[bold cyan]Available Replay Data[/bold cyan]")
+                console.print("\n[bold cyan]Available Replay Data[/bold cyan]")
                 console.print(f"  Snapshots: {len(timestamps)}")
                 console.print(f"  Earliest:  {earliest}")
                 console.print(f"  Latest:    {latest}")
-                console.print(f"\n  Use [bold]riva replay --at \"{earliest}\"[/bold] to view state at that time.\n")
+                console.print(f'\n  Use [bold]riva replay --at "{earliest}"[/bold] to view state at that time.\n')
     finally:
         storage.close()
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Web dashboard host.")
+@click.option("--port", default=8585, type=int, help="Web dashboard port.")
+def tray(host: str, port: int) -> None:
+    """Launch the system tray (macOS)."""
+    from riva.tray.manager import start_tray
+
+    version = _get_version()
+    start_tray(version=version, web_host=host, web_port=port)
 
 
 @cli.command()

@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from riva.agents.base import AgentDetector, filter_secrets
-from riva.utils.jsonl import find_recent_sessions, stream_jsonl
+from riva.utils.jsonl import find_recent_sessions
 
 
 class CursorDetector(AgentDetector):
@@ -98,9 +98,7 @@ class CursorDetector(AgentDetector):
             conn = sqlite3.connect(uri, uri=True, timeout=2.0)
             conn.row_factory = sqlite3.Row
             try:
-                cursor = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
+                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
                 tables = [row["name"] for row in cursor.fetchall()]
                 stats: dict = {"tables": tables}
 

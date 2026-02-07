@@ -31,9 +31,7 @@ class AgentHistory:
 
     agent_name: str
     pid: int | None
-    snapshots: deque[ResourceSnapshot] = field(
-        default_factory=lambda: deque(maxlen=60)
-    )
+    snapshots: deque[ResourceSnapshot] = field(default_factory=lambda: deque(maxlen=60))
 
     @property
     def cpu_history(self) -> list[float]:
@@ -71,6 +69,7 @@ class ResourceMonitor:
         # Child process tree collector
         try:
             from riva.core.children import ProcessTreeCollector
+
             self._tree_collector = ProcessTreeCollector()
         except Exception:
             self._tree_collector = None
@@ -113,6 +112,7 @@ class ResourceMonitor:
         # Collect network connections for running agents
         try:
             from riva.core.network import collect_connections
+
             for inst in refreshed:
                 if inst.status == AgentStatus.RUNNING and inst.pid:
                     conns = collect_connections(inst.pid)
@@ -129,6 +129,17 @@ class ResourceMonitor:
                         }
                         for c in conns
                     ]
+        except Exception:
+            pass
+
+        # Detect sandbox / container status for running agents
+        try:
+            from riva.core.sandbox import detect_sandbox
+
+            for inst in refreshed:
+                if inst.status == AgentStatus.RUNNING and inst.pid:
+                    sandbox = detect_sandbox(inst.pid)
+                    inst.extra["sandbox"] = sandbox.to_dict()
         except Exception:
             pass
 
@@ -169,16 +180,18 @@ class ResourceMonitor:
                 if self._storage is not None and new_orphans:
                     for orphan in new_orphans:
                         try:
-                            self._storage.record_orphan({
-                                "agent_name": orphan.agent_name,
-                                "original_parent_pid": orphan.original_parent_pid,
-                                "pid": orphan.pid,
-                                "name": orphan.name,
-                                "exe": orphan.exe,
-                                "detected_at": orphan.detected_at,
-                                "cpu_percent": orphan.cpu_percent,
-                                "memory_mb": orphan.memory_mb,
-                            })
+                            self._storage.record_orphan(
+                                {
+                                    "agent_name": orphan.agent_name,
+                                    "original_parent_pid": orphan.original_parent_pid,
+                                    "pid": orphan.pid,
+                                    "name": orphan.name,
+                                    "exe": orphan.exe,
+                                    "detected_at": orphan.detected_at,
+                                    "cpu_percent": orphan.cpu_percent,
+                                    "memory_mb": orphan.memory_mb,
+                                }
+                            )
                         except Exception:
                             pass
             except Exception:
@@ -228,13 +241,9 @@ class ResourceMonitor:
                             # Get the latest snapshot_id for this agent
                             try:
                                 conn = self._storage._get_conn()
-                                row = conn.execute(
-                                    "SELECT id FROM snapshots ORDER BY id DESC LIMIT 1"
-                                ).fetchone()
+                                row = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
                                 if row:
-                                    self._storage.record_child_processes(
-                                        row["id"], inst.pid, children
-                                    )
+                                    self._storage.record_child_processes(row["id"], inst.pid, children)
                             except Exception:
                                 pass
             except Exception:

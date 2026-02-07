@@ -1,9 +1,7 @@
 """Tests for riva.core.scanner."""
 
 import time
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from riva.agents.base import AgentStatus, SimpleAgentDetector
 from riva.core.scanner import ProcessInfo, ProcessScanner
@@ -83,8 +81,10 @@ class TestProcessScanner:
         det_a = _make_detector("A", ["agentA"])
         det_b = _make_detector("B", ["agentB"])
 
-        with patch.object(det_a, "is_installed", return_value=False), \
-             patch.object(det_b, "is_installed", return_value=False):
+        with (
+            patch.object(det_a, "is_installed", return_value=False),
+            patch.object(det_b, "is_installed", return_value=False),
+        ):
             instances = scanner.scan([det_a, det_b])
 
         names = {i.name for i in instances}
