@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riva"
-version = "0.2.3"
+version = "0.3.0"
 description = "AI Agent Task Manager - discover and monitor AI coding agents running on your machine"
 readme = "README.md"
 license = {text = "MIT"}

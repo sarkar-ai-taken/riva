@@ -790,6 +790,302 @@ def config() -> None:
         console.print()
 
 
+# ---------------------------------------------------------------------------
+# Forensic command group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def forensic() -> None:
+    """Session forensics — reconstruct what agents did and why."""
+
+
+@forensic.command(name="sessions")
+@click.option("--project", default=None, help="Filter by project name substring.")
+@click.option("--limit", default=20, type=int, help="Max sessions to show.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_sessions(project: str | None, limit: int, as_json: bool) -> None:
+    """List available agent sessions."""
+    from riva.core.forensic import discover_sessions
+
+    sessions = discover_sessions(project_filter=project, limit=limit)
+
+    if as_json:
+        click.echo(json.dumps(sessions, indent=2))
+    else:
+        console = Console()
+        if not sessions:
+            console.print("\n[dim]No sessions found.[/dim]\n")
+            return
+
+        table = Table(
+            title="Agent Sessions",
+            expand=True,
+            title_style="bold cyan",
+            border_style="bright_blue",
+        )
+        table.add_column("Slug", style="bold white", min_width=20)
+        table.add_column("Session ID", min_width=12)
+        table.add_column("Project", min_width=20, max_width=40, no_wrap=True)
+        table.add_column("Modified", min_width=19)
+        table.add_column("Size", justify="right", min_width=8)
+
+        for s in sessions:
+            slug = s.get("slug") or "[dim]-[/dim]"
+            sid = s["session_id"][:12]
+            proj = s.get("project", "?")
+            if len(proj) > 40:
+                proj = "..." + proj[-37:]
+            mod = s.get("modified_time", "?")[:19]
+            size_kb = s.get("size_bytes", 0) / 1024
+            size_str = f"{size_kb:.0f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
+            table.add_row(slug, sid, proj, mod, size_str)
+
+        console.print()
+        console.print(table)
+        console.print(f"\n  [dim]Use [bold]riva forensic summary <slug>[/bold] to inspect a session.[/dim]\n")
+
+
+@forensic.command(name="timeline")
+@click.argument("session", default="latest")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_timeline(session: str, as_json: bool) -> None:
+    """Show event-by-event timeline for a session.
+
+    SESSION can be "latest", a slug, or a UUID prefix.
+    """
+    from riva.core.forensic import format_timeline, parse_session, resolve_session
+
+    path = resolve_session(session)
+    if not path:
+        click.echo(f"Error: session '{session}' not found.")
+        raise SystemExit(1)
+
+    parsed = parse_session(path)
+
+    if as_json:
+        turns = []
+        for t in parsed.turns:
+            turns.append({
+                "index": t.index,
+                "prompt": t.prompt[:200],
+                "timestamp_start": t.timestamp_start,
+                "timestamp_end": t.timestamp_end,
+                "model": t.model,
+                "total_tokens": t.total_tokens,
+                "is_dead_end": t.is_dead_end,
+                "actions": [
+                    {
+                        "tool": a.tool_name,
+                        "input": a.input_summary,
+                        "duration_ms": a.duration_ms,
+                        "success": a.success,
+                        "files": a.files_touched,
+                    }
+                    for a in t.actions
+                ],
+            })
+        click.echo(json.dumps({"session_id": parsed.session_id, "slug": parsed.slug, "turns": turns}, indent=2))
+    else:
+        console = Console()
+        title = parsed.slug or parsed.session_id[:12]
+        console.print(f"\n[bold cyan]Timeline: {title}[/bold cyan]")
+        if parsed.project:
+            console.print(f"  [dim]{parsed.project}[/dim]")
+        console.print()
+        for line in format_timeline(parsed):
+            console.print(line)
+        console.print()
+
+
+@forensic.command(name="summary")
+@click.argument("session", default="latest")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_summary(session: str, as_json: bool) -> None:
+    """Show a quick overview of a session.
+
+    SESSION can be "latest", a slug, or a UUID prefix.
+    """
+    from riva.core.forensic import format_summary, parse_session, resolve_session
+
+    path = resolve_session(session)
+    if not path:
+        click.echo(f"Error: session '{session}' not found.")
+        raise SystemExit(1)
+
+    parsed = parse_session(path)
+
+    if as_json:
+        click.echo(json.dumps({
+            "session_id": parsed.session_id,
+            "slug": parsed.slug,
+            "project": parsed.project,
+            "model": parsed.model,
+            "git_branch": parsed.git_branch,
+            "timestamp_start": parsed.timestamp_start,
+            "timestamp_end": parsed.timestamp_end,
+            "duration_seconds": parsed.duration_seconds,
+            "turns": len(parsed.turns),
+            "actions": parsed.total_actions,
+            "total_tokens": parsed.total_tokens,
+            "files_read": parsed.total_files_read,
+            "files_written": parsed.total_files_written,
+            "dead_ends": parsed.dead_end_count,
+            "efficiency": parsed.efficiency,
+        }, indent=2))
+    else:
+        console = Console()
+        title = parsed.slug or parsed.session_id[:12]
+        console.print(f"\n[bold cyan]Session Summary: {title}[/bold cyan]\n")
+        for line in format_summary(parsed):
+            console.print(line)
+        console.print()
+
+
+@forensic.command(name="patterns")
+@click.argument("session", default="latest")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_patterns(session: str, as_json: bool) -> None:
+    """Show detected behavioral patterns in a session.
+
+    SESSION can be "latest", a slug, or a UUID prefix.
+    """
+    from riva.core.forensic import format_patterns, parse_session, resolve_session
+
+    path = resolve_session(session)
+    if not path:
+        click.echo(f"Error: session '{session}' not found.")
+        raise SystemExit(1)
+
+    parsed = parse_session(path)
+
+    if as_json:
+        click.echo(json.dumps({
+            "session_id": parsed.session_id,
+            "slug": parsed.slug,
+            "patterns": [
+                {"type": p.pattern_type, "description": p.description, "severity": p.severity, "turns": p.turn_indices}
+                for p in parsed.patterns
+            ],
+        }, indent=2))
+    else:
+        console = Console()
+        title = parsed.slug or parsed.session_id[:12]
+        console.print(f"\n[bold cyan]Patterns: {title}[/bold cyan]\n")
+        for line in format_patterns(parsed):
+            console.print(line)
+        console.print()
+
+
+@forensic.command(name="decisions")
+@click.argument("session", default="latest")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_decisions(session: str, as_json: bool) -> None:
+    """Show decision points extracted from agent thinking.
+
+    SESSION can be "latest", a slug, or a UUID prefix.
+    """
+    from riva.core.forensic import format_decisions, parse_session, resolve_session
+
+    path = resolve_session(session)
+    if not path:
+        click.echo(f"Error: session '{session}' not found.")
+        raise SystemExit(1)
+
+    parsed = parse_session(path)
+
+    if as_json:
+        decisions = []
+        for turn in parsed.turns:
+            if turn.thinking and turn.actions:
+                decisions.append({
+                    "turn": turn.index,
+                    "timestamp": turn.timestamp_start,
+                    "actions": [a.tool_name for a in turn.actions],
+                    "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
+                    "files": turn.files_read + turn.files_written,
+                    "is_dead_end": turn.is_dead_end,
+                })
+        click.echo(json.dumps({"session_id": parsed.session_id, "slug": parsed.slug, "decisions": decisions}, indent=2))
+    else:
+        console = Console()
+        title = parsed.slug or parsed.session_id[:12]
+        console.print(f"\n[bold cyan]Decisions: {title}[/bold cyan]\n")
+        for line in format_decisions(parsed):
+            console.print(line)
+        console.print()
+
+
+@forensic.command(name="files")
+@click.argument("session", default="latest")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_files(session: str, as_json: bool) -> None:
+    """Show which files were read and modified in a session.
+
+    SESSION can be "latest", a slug, or a UUID prefix.
+    """
+    from riva.core.forensic import format_files, parse_session, resolve_session
+
+    path = resolve_session(session)
+    if not path:
+        click.echo(f"Error: session '{session}' not found.")
+        raise SystemExit(1)
+
+    parsed = parse_session(path)
+
+    if as_json:
+        click.echo(json.dumps({
+            "session_id": parsed.session_id,
+            "slug": parsed.slug,
+            "files_read": parsed.all_files_read,
+            "files_written": parsed.all_files_written,
+        }, indent=2))
+    else:
+        console = Console()
+        title = parsed.slug or parsed.session_id[:12]
+        console.print(f"\n[bold cyan]Files: {title}[/bold cyan]\n")
+        for line in format_files(parsed):
+            console.print(line)
+        console.print()
+
+
+@forensic.command(name="trends")
+@click.option("--project", default=None, help="Filter by project name substring.")
+@click.option("--limit", default=20, type=int, help="Max sessions to analyze.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def forensic_trends(project: str | None, limit: int, as_json: bool) -> None:
+    """Show cross-session learning trends."""
+    from riva.core.forensic import (
+        compute_trends,
+        discover_sessions,
+        format_trends,
+        parse_session,
+    )
+
+    session_list = discover_sessions(project_filter=project, limit=limit)
+    if not session_list:
+        click.echo("No sessions found.")
+        raise SystemExit(1)
+
+    console = Console()
+    if not as_json:
+        console.print(f"\n[dim]Parsing {len(session_list)} sessions...[/dim]")
+
+    parsed = [parse_session(s["file_path"]) for s in session_list]
+    trends = compute_trends(parsed)
+
+    if as_json:
+        # Make top_tools serializable
+        trends["top_tools"] = [{"tool": t[0], "count": t[1]} for t in trends.get("top_tools", [])]
+        trends["efficiency_series"] = [{"session": s[0], "efficiency": s[1]} for s in trends.get("efficiency_series", [])]
+        click.echo(json.dumps(trends, indent=2))
+    else:
+        console.print(f"\n[bold cyan]Trends ({len(parsed)} sessions)[/bold cyan]\n")
+        for line in format_trends(trends):
+            console.print(line)
+        console.print()
+
+
 def _attach_usage_stats(instances: list, registry) -> None:
     """Attach usage stats to instances by matching agent names to detectors."""
     detector_map = {d.agent_name: d for d in registry.detectors}
