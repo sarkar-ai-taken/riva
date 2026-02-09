@@ -63,9 +63,10 @@ It **observes agent behavior** but does not execute agent actions.
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
 - **Environment scanning** — detect exposed API keys in environment variables
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
+- **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
-- **Web dashboard** — Flask-based dashboard with REST API, security headers, and optional auth token
+- **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, and forensic drill-in
 - **Framework-agnostic** — works across multiple agent frameworks and custom agents
 - **Local-first** — no cloud, no telemetry, no hidden data flows
 
@@ -240,6 +241,24 @@ Checks performed:
 
 See [Security Audit Details](#security-audit-details) for the full list and rationale.
 
+### `riva forensic`
+
+Session forensics — deep-dive analysis of AI agent session transcripts (JSONL).
+
+```bash
+riva forensic sessions                    # List recent sessions
+riva forensic sessions --project riva     # Filter by project
+riva forensic summary latest              # Summary of latest session
+riva forensic timeline <slug>             # Event-by-event timeline
+riva forensic patterns <slug>             # Detected anti-patterns
+riva forensic decisions <slug>            # Key decision points
+riva forensic files <slug>                # File access report
+riva forensic trends                      # Cross-session aggregate metrics
+riva forensic trends --limit 50 --json    # JSON output
+```
+
+Session identifiers: `latest`, a session slug (e.g. `witty-shimmying-haven`), a UUID prefix, or a full UUID.
+
 ---
 
 ## Web Dashboard
@@ -275,6 +294,9 @@ A warning is printed when binding to a non-localhost address.
 | `GET /api/env` | Environment variables |
 | `GET /api/registry` | Known agent types |
 | `GET /api/config` | Agent configurations |
+| `GET /api/forensic/sessions` | Forensic session list (cached 30s) |
+| `GET /api/forensic/session/<id>` | Full parsed session detail |
+| `GET /api/forensic/trends` | Cross-session aggregate trends (cached 30s) |
 
 ### Authentication
 
@@ -385,6 +407,7 @@ src/riva/
 ├── core/                # Core logic
 │   ├── audit.py         # Security audit checks
 │   ├── env_scanner.py   # Environment variable scanning
+│   ├── forensic.py      # Session forensics (timeline, patterns, decisions)
 │   ├── monitor.py       # Resource monitoring (CPU, memory)
 │   ├── sandbox.py       # Sandbox / container detection
 │   ├── scanner.py       # Process scanning

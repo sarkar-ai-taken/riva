@@ -1,5 +1,43 @@
 # Release History
 
+## v0.3.0 (2026-02-08)
+
+### Session Forensics
+
+- New **`riva forensic`** command group for deep-dive analysis of AI agent session transcripts (JSONL)
+- **Session discovery** — `riva forensic sessions` lists recent sessions across all projects with slug, project, age, and file size
+- **Session summary** — `riva forensic summary <slug>` shows model, duration, turns, actions, tokens, files, dead-ends, and efficiency
+- **Timeline** — `riva forensic timeline <slug>` renders a chronological event-by-event trace with tool names, durations, and failure markers
+- **Pattern detection** — `riva forensic patterns <slug>` identifies dead ends, search thrashing, retry loops, and write-without-read anti-patterns
+- **Decision analysis** — `riva forensic decisions <slug>` extracts key decision points from thinking blocks with reasoning previews
+- **File report** — `riva forensic files <slug>` lists all files modified vs read-only during a session
+- **Cross-session trends** — `riva forensic trends` computes aggregate metrics (efficiency, dead-end rate, top tools) across recent sessions
+- All subcommands support `--json` output
+- New core module: `riva.core.forensic` — `ForensicSession`, `Turn`, `Action`, `SessionPattern` data models with full parsing pipeline
+
+### Web Dashboard — Forensics Tab
+
+- New **Forensics** tab in the web dashboard (6th tab alongside Overview, Network, Security, Usage, Config)
+- **Trends overview** — stat cards showing total sessions, turns, tokens, average efficiency, and dead-end rate with top tools bar chart
+- **Sessions table** — sortable list of all discovered sessions with slug, project, last modified time, and file size; clickable rows for drill-in
+- **Session detail view** — full drill-in with:
+  - Summary card (model, duration, turns, actions, tokens, efficiency bar)
+  - Patterns section grouped by type with severity coloring
+  - Scrollable timeline with timestamps, tool names, durations, and color-coded failure/dead-end markers
+  - Files section (modified vs read-only lists)
+  - Decisions accordion with thinking previews and backtrack indicators
+- Back button navigation from detail view to session list
+- 3 new API endpoints:
+  - `GET /api/forensic/sessions` — list sessions (cached 30s)
+  - `GET /api/forensic/session/<id>` — full parsed session detail
+  - `GET /api/forensic/trends` — cross-session aggregate trends (cached 30s)
+
+### TUI Dashboard — Forensic Summary Panel
+
+- New **Forensic Sessions** panel in the live TUI dashboard (`riva watch`)
+- Shows 5 most recent sessions with slug, project, and relative time ago
+- Uses lightweight session discovery (file listing only) — no JSONL parsing in the live refresh loop
+
 ## v0.2.3 (2026-02-06)
 
 ### Sandbox / Container Detection

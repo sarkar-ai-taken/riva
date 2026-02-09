@@ -104,6 +104,24 @@
         } catch (e) {}
       }
 
+      // Fetch forensic data when on forensics tab
+      if (currentTab === 'forensics') {
+        try {
+          var fSessions = await fetch('/api/forensic/sessions');
+          if (fSessions.ok) {
+            var fData = await fSessions.json();
+            renderForensicSessions(fData.sessions || []);
+          }
+        } catch (e) {}
+        try {
+          var fTrends = await fetch('/api/forensic/trends');
+          if (fTrends.ok) {
+            var tData = await fTrends.json();
+            renderForensicTrends(tData.trends || {});
+          }
+        } catch (e) {}
+      }
+
       setConnection(true);
       updateTimestamp();
     } catch (e) {
@@ -132,6 +150,37 @@
     } finally {
       buttons.forEach(function(b) { b.disabled = false; });
     }
+  };
+
+  /* --- Forensic Session Drill-in --- */
+  window.loadForensicSession = async function(id) {
+    var detailSection = document.getElementById('sec-forensic-detail');
+    var sessionsSection = document.getElementById('sec-forensic-sessions');
+    var trendsSection = document.getElementById('sec-forensic-trends');
+    var wrap = document.getElementById('forensic-detail-wrap');
+
+    wrap.innerHTML = '<p class="empty-msg">Loading session...</p>';
+    detailSection.style.display = 'block';
+    sessionsSection.style.display = 'none';
+    trendsSection.style.display = 'none';
+
+    try {
+      var res = await fetch('/api/forensic/session/' + encodeURIComponent(id));
+      if (res.ok) {
+        var data = await res.json();
+        renderForensicDetail(data);
+      } else {
+        wrap.innerHTML = '<p class="empty-msg">Session not found</p>';
+      }
+    } catch (e) {
+      wrap.innerHTML = '<p class="empty-msg">Failed to load session</p>';
+    }
+  };
+
+  window.forensicBackToList = function() {
+    document.getElementById('sec-forensic-detail').style.display = 'none';
+    document.getElementById('sec-forensic-sessions').style.display = 'block';
+    document.getElementById('sec-forensic-trends').style.display = 'block';
   };
 
   /* --- Init --- */

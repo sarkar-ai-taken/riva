@@ -374,6 +374,58 @@ def build_orphan_panel(orphans: list | None = None) -> Panel:
     )
 
 
+def build_forensic_panel(sessions: list[dict] | None = None) -> Panel:
+    """Build a compact panel showing recent forensic sessions."""
+    if not sessions:
+        return Panel(
+            "[dim]No sessions found. Run an AI agent to generate session data.[/dim]",
+            title="Forensic Sessions",
+            title_align="left",
+            border_style="dim",
+            expand=True,
+        )
+
+    from datetime import datetime
+
+    lines: list[str] = []
+    lines.append(f"[bold]{len(sessions)}[/bold] recent session(s)")
+
+    now = datetime.now()
+    for s in sessions[:5]:
+        slug = s.get("slug") or s.get("session_id", "?")[:12]
+        project = (s.get("project") or "?").replace("-", "/")
+        if len(project) > 20:
+            project = "..." + project[-17:]
+        modified = s.get("modified_time")
+        age = ""
+        if modified:
+            try:
+                mt = datetime.fromisoformat(modified)
+                delta = (now - mt).total_seconds()
+                if delta < 60:
+                    age = f"{int(delta)}s ago"
+                elif delta < 3600:
+                    age = f"{int(delta // 60)}m ago"
+                elif delta < 86400:
+                    age = f"{int(delta // 3600)}h ago"
+                else:
+                    age = f"{int(delta // 86400)}d ago"
+            except (ValueError, TypeError):
+                pass
+        lines.append(f"  [cyan]{slug:<28}[/cyan] {project:<20} {age}")
+
+    lines.append("[dim]Run [bold]riva forensic summary <slug>[/bold] for details.[/dim]")
+
+    content = "\n".join(lines)
+    return Panel(
+        content,
+        title="Forensic Sessions",
+        title_align="left",
+        border_style="cyan",
+        expand=True,
+    )
+
+
 def build_security_panel(audit_results: list | None = None) -> Panel:
     """Build a security audit summary panel."""
     if not audit_results:

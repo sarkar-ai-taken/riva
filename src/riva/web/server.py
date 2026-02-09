@@ -309,6 +309,134 @@ def create_app(auth_token: str | None = None) -> Flask:
 
         return jsonify({"agents": _cached("registry", _fetch)})
 
+    # ---- Forensic endpoints -------------------------------------------------
+
+    @app.route("/api/forensic/sessions")
+    def api_forensic_sessions():
+        def _fetch():
+            from riva.core.forensic import discover_sessions
+
+            project = request.args.get("project")
+            limit = int(request.args.get("limit", 30))
+            return discover_sessions(project_filter=project, limit=limit)
+
+        return jsonify({"sessions": _cached("forensic_sessions", _fetch), "timestamp": time.time()})
+
+    @app.route("/api/forensic/session/<identifier>")
+    def api_forensic_session(identifier):
+        from riva.core.forensic import parse_session, resolve_session
+
+        path = resolve_session(identifier)
+        if not path:
+            return jsonify({"error": "Session not found"}), 404
+
+        session = parse_session(path)
+
+        def _fmt_duration(seconds):
+            if not seconds:
+                return None
+            mins = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{mins}m{secs}s" if mins > 0 else f"{secs}s"
+
+        timeline = []
+        for turn in session.turns:
+            entry = {
+                "index": turn.index,
+                "prompt": turn.prompt[:200],
+                "timestamp_start": turn.timestamp_start,
+                "timestamp_end": turn.timestamp_end,
+                "duration": _fmt_duration(turn.duration_seconds),
+                "tokens": turn.total_tokens,
+                "is_dead_end": turn.is_dead_end,
+                "actions": [
+                    {
+                        "tool_name": a.tool_name,
+                        "input_summary": a.input_summary[:120],
+                        "duration_ms": a.duration_ms,
+                        "success": a.success,
+                        "timestamp": a.timestamp,
+                        "files": a.files_touched,
+                    }
+                    for a in turn.actions
+                ],
+            }
+            timeline.append(entry)
+
+        patterns = [
+            {
+                "pattern_type": p.pattern_type,
+                "description": p.description,
+                "turn_indices": p.turn_indices,
+                "severity": p.severity,
+            }
+            for p in session.patterns
+        ]
+
+        decisions = []
+        for turn in session.turns:
+            if not turn.thinking or not turn.actions:
+                continue
+            decisions.append({
+                "turn_index": turn.index,
+                "timestamp": turn.timestamp_start,
+                "actions": [a.tool_name for a in turn.actions[:8]],
+                "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
+                "files": turn.files_read + turn.files_written,
+                "is_dead_end": turn.is_dead_end,
+            })
+
+        return jsonify({
+            "session": {
+                "session_id": session.session_id,
+                "slug": session.slug,
+                "project": session.project,
+                "model": session.model,
+                "git_branch": session.git_branch,
+                "timestamp_start": session.timestamp_start,
+                "timestamp_end": session.timestamp_end,
+                "duration": _fmt_duration(session.duration_seconds),
+                "turns": len(session.turns),
+                "actions": session.total_actions,
+                "tokens": session.total_tokens,
+                "files_read": session.total_files_read,
+                "files_written": session.total_files_written,
+                "dead_ends": session.dead_end_count,
+                "efficiency": round(session.efficiency, 2),
+                "files_modified": session.all_files_written,
+                "files_read_only": [f for f in session.all_files_read if f not in session.all_files_written],
+            },
+            "timeline": timeline,
+            "patterns": patterns,
+            "decisions": decisions,
+        })
+
+    @app.route("/api/forensic/trends")
+    def api_forensic_trends():
+        def _fetch():
+            from riva.core.forensic import compute_trends, discover_sessions, parse_session
+
+            project = request.args.get("project")
+            limit = int(request.args.get("limit", 20))
+            session_list = discover_sessions(project_filter=project, limit=limit)
+
+            parsed = []
+            for s in session_list[:limit]:
+                try:
+                    parsed.append(parse_session(s["file_path"]))
+                except Exception:
+                    continue
+
+            trends = compute_trends(parsed)
+            # Convert top_tools tuples to dicts for JSON
+            if trends.get("top_tools"):
+                trends["top_tools"] = [{"tool_name": t[0], "call_count": t[1]} for t in trends["top_tools"]]
+            if trends.get("efficiency_series"):
+                trends["efficiency_series"] = [{"label": e[0], "value": e[1]} for e in trends["efficiency_series"]]
+            return trends
+
+        return jsonify({"trends": _cached("forensic_trends", _fetch), "timestamp": time.time()})
+
     # ---- Orphan endpoint ---------------------------------------------------
 
     @app.route("/api/orphans")

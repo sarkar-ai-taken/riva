@@ -16,6 +16,7 @@ from riva.tui.components import (
     build_agent_card,
     build_agent_table,
     build_env_table,
+    build_forensic_panel,
     build_network_table,
     build_orphan_panel,
     build_security_panel,
@@ -62,6 +63,21 @@ def _build_usage_summary(monitor: ResourceMonitor) -> Panel:
     )
 
 
+def _build_forensic_summary() -> Panel:
+    """Build a compact forensic summary panel.
+
+    Only calls ``discover_sessions`` (fast file listing) — never parses
+    full sessions in the live loop.
+    """
+    try:
+        from riva.core.forensic import discover_sessions
+
+        sessions = discover_sessions(limit=5)
+    except Exception:
+        sessions = []
+    return build_forensic_panel(sessions)
+
+
 def _build_layout(monitor: ResourceMonitor) -> Layout:
     """Build the full dashboard layout."""
     instances = monitor.instances
@@ -87,6 +103,7 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
         Layout(name="network", size=8),
         Layout(name="security", size=6),
         Layout(name="usage", size=3),
+        Layout(name="forensic", size=10),
         Layout(name="env", size=10),
     )
 
@@ -120,6 +137,8 @@ def _build_layout(monitor: ResourceMonitor) -> Layout:
     body["security"].update(build_security_panel())
 
     body["usage"].update(_build_usage_summary(monitor))
+
+    body["forensic"].update(_build_forensic_summary())
 
     env_vars = scan_env_vars()
     body["env"].update(build_env_table(env_vars))

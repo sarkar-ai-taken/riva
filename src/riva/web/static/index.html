@@ -23,6 +23,7 @@
   <button class="tab-btn" data-tab="security">Security</button>
   <button class="tab-btn" data-tab="usage">Usage</button>
   <button class="tab-btn" data-tab="config">Config</button>
+  <button class="tab-btn" data-tab="forensics">Forensics</button>
 </nav>
 
 <!-- Timeline Bar -->
@@ -125,6 +126,26 @@
   <section id="sec-config">
     <h2>Agent Configurations</h2>
     <div id="config-wrap"><p class="empty-msg">Loading...</p></div>
+  </section>
+</div>
+
+<!-- ============================================================ -->
+<!-- Forensics Tab -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-forensics">
+  <section id="sec-forensic-trends">
+    <h2>Session Trends</h2>
+    <div id="forensic-trends-wrap"><p class="empty-msg">Loading...</p></div>
+  </section>
+
+  <section id="sec-forensic-sessions">
+    <h2>Sessions</h2>
+    <div id="forensic-sessions-wrap"><p class="empty-msg">Loading...</p></div>
+  </section>
+
+  <section id="sec-forensic-detail" style="display:none">
+    <h2>Session Detail</h2>
+    <div id="forensic-detail-wrap"></div>
   </section>
 </div>
 

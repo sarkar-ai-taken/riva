@@ -236,6 +236,183 @@ function renderRegistryTable(agents) {
   wrap.innerHTML = h;
 }
 
+/* --- Forensics Tab --- */
+function renderForensicTrends(trends) {
+  var wrap = document.getElementById('forensic-trends-wrap');
+  if (!trends || !trends.total_sessions) {
+    wrap.innerHTML = '<p class="empty-msg">No trend data available</p>';
+    return;
+  }
+
+  var effPct = (trends.avg_efficiency * 100).toFixed(0);
+  var deadPct = (trends.dead_end_rate * 100).toFixed(0);
+
+  var h = '<div class="stat-row">' +
+    '<div class="stat-card"><div class="stat-value">' + trends.total_sessions + '</div><div class="stat-label">Sessions</div></div>' +
+    '<div class="stat-card"><div class="stat-value">' + trends.total_turns + '</div><div class="stat-label">Turns</div></div>' +
+    '<div class="stat-card"><div class="stat-value">' + (trends.total_tokens || 0).toLocaleString() + '</div><div class="stat-label">Tokens</div></div>' +
+    '<div class="stat-card"><div class="stat-value"><div class="efficiency-bar"><div class="efficiency-fill" style="width:' + effPct + '%"></div></div>' + effPct + '%</div><div class="stat-label">Avg Efficiency</div></div>' +
+    '<div class="stat-card"><div class="stat-value" style="color:' + (trends.dead_end_rate > 0.2 ? 'var(--red)' : 'var(--yellow)') + '">' + deadPct + '%</div><div class="stat-label">Dead-End Rate</div></div>' +
+    '</div>';
+
+  // Top tools bar chart
+  if (trends.top_tools && trends.top_tools.length) {
+    h += '<div style="margin-top:16px"><h3 style="font-size:14px;color:var(--text-dim);margin-bottom:8px">Top Tools Across Sessions</h3>';
+    h += renderToolBars(trends.top_tools);
+    h += '</div>';
+  }
+
+  wrap.innerHTML = h;
+}
+
+function renderForensicSessions(sessions) {
+  var wrap = document.getElementById('forensic-sessions-wrap');
+  if (!sessions || !sessions.length) {
+    wrap.innerHTML = '<p class="empty-msg">No sessions found</p>';
+    return;
+  }
+
+  var h = '<table id="tbl-forensic-sessions"><thead><tr><th>Slug</th><th>Project</th><th>Modified</th><th>Size</th></tr></thead><tbody>';
+  sessions.forEach(function(s) {
+    var slug = s.slug || s.session_id.substring(0, 12);
+    var project = (s.project || '').replace(/-/g, '/').replace(/^\//, '');
+    if (project.length > 50) project = '...' + project.slice(-47);
+    var modified = s.modified_time ? new Date(s.modified_time).toLocaleString() : '\u2014';
+    var sizeKb = s.size_bytes ? (s.size_bytes / 1024).toFixed(0) + ' KB' : '\u2014';
+    var id = s.slug || s.session_id;
+    h += '<tr class="forensic-session-row" onclick="window.loadForensicSession(\'' + esc(id) + '\')" style="cursor:pointer">' +
+      '<td style="color:var(--accent);font-weight:600">' + esc(slug) + '</td>' +
+      '<td>' + esc(project) + '</td>' +
+      '<td>' + esc(modified) + '</td>' +
+      '<td>' + esc(sizeKb) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  wrap.innerHTML = h;
+  makeSortable(document.getElementById('tbl-forensic-sessions'));
+}
+
+function renderForensicDetail(data) {
+  var wrap = document.getElementById('forensic-detail-wrap');
+  var s = data.session;
+
+  var h = '<button class="btn forensic-back-btn" onclick="window.forensicBackToList()">&larr; Back to sessions</button>';
+
+  // Summary card
+  var effPct = ((s.efficiency || 0) * 100).toFixed(0);
+  h += '<div class="card" style="margin-top:12px"><h3>' + esc(s.slug || s.session_id) + '</h3>';
+  h += '<div class="card-row"><span class="label">Model</span><span class="value">' + esc(s.model) + '</span></div>';
+  h += '<div class="card-row"><span class="label">Duration</span><span class="value">' + esc(s.duration) + '</span></div>';
+  h += '<div class="card-row"><span class="label">Branch</span><span class="value">' + esc(s.git_branch) + '</span></div>';
+  h += '<div class="card-row"><span class="label">Turns</span><span class="value">' + s.turns + '</span></div>';
+  h += '<div class="card-row"><span class="label">Actions</span><span class="value">' + s.actions + '</span></div>';
+  h += '<div class="card-row"><span class="label">Tokens</span><span class="value">' + (s.tokens || 0).toLocaleString() + '</span></div>';
+  h += '<div class="card-row"><span class="label">Files Read</span><span class="value">' + s.files_read + '</span></div>';
+  h += '<div class="card-row"><span class="label">Files Written</span><span class="value">' + s.files_written + '</span></div>';
+  h += '<div class="card-row"><span class="label">Dead Ends</span><span class="value" style="color:' + (s.dead_ends > 0 ? 'var(--yellow)' : 'var(--text)') + '">' + s.dead_ends + '</span></div>';
+  h += '<div class="card-row"><span class="label">Efficiency</span><span class="value"><div class="efficiency-bar" style="display:inline-block;width:80px;vertical-align:middle"><div class="efficiency-fill" style="width:' + effPct + '%"></div></div> ' + effPct + '%</span></div>';
+  h += '</div>';
+
+  // Patterns section
+  if (data.patterns && data.patterns.length) {
+    h += '<div class="card" style="margin-top:12px"><h3>Patterns</h3>';
+    var byType = {};
+    data.patterns.forEach(function(p) {
+      if (!byType[p.pattern_type]) byType[p.pattern_type] = [];
+      byType[p.pattern_type].push(p);
+    });
+    var labels = { dead_end: 'Dead Ends', search_thrash: 'Search Thrashing', retry_loop: 'Retry Loops', write_without_read: 'Write Without Read' };
+    Object.keys(byType).forEach(function(ptype) {
+      var plist = byType[ptype];
+      var label = labels[ptype] || ptype;
+      h += '<div style="margin-bottom:8px"><strong style="color:var(--accent)">' + esc(label) + '</strong> (' + plist.length + ')';
+      plist.forEach(function(p) {
+        var color = p.severity === 'warning' ? 'var(--yellow)' : 'var(--text-dim)';
+        h += '<div style="padding-left:12px;color:' + color + ';font-size:12px">' + esc(p.description) + '</div>';
+      });
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+
+  // Timeline section
+  if (data.timeline && data.timeline.length) {
+    h += '<div class="card" style="margin-top:12px"><h3>Timeline</h3><div class="forensic-timeline">';
+    data.timeline.forEach(function(turn) {
+      var deadCls = turn.is_dead_end ? ' dead-end' : '';
+      h += '<div class="forensic-event' + deadCls + '">';
+      h += '<div class="forensic-event-header">';
+      h += '<span class="forensic-event-time">' + esc(turn.timestamp_start ? turn.timestamp_start.substring(11, 19) : '') + '</span>';
+      h += '<span class="forensic-event-label">Turn ' + turn.index + '</span>';
+      if (turn.duration) h += '<span style="color:var(--text-dim);font-size:11px">' + esc(turn.duration) + '</span>';
+      if (turn.is_dead_end) h += '<span class="badge severity-medium" style="margin-left:6px">dead end</span>';
+      h += '</div>';
+      h += '<div class="forensic-event-prompt">' + esc(turn.prompt) + '</div>';
+
+      if (turn.actions && turn.actions.length) {
+        turn.actions.forEach(function(a) {
+          var failCls = a.success ? '' : ' fail';
+          var dur = a.duration_ms ? ' [' + (a.duration_ms / 1000).toFixed(1) + 's]' : '';
+          h += '<div class="forensic-event forensic-action' + failCls + '">';
+          h += '<span class="forensic-event-time">' + esc(a.timestamp ? a.timestamp.substring(11, 19) : '') + '</span>';
+          h += '<span class="forensic-tool-name">' + esc(a.tool_name) + '</span> ';
+          h += '<span style="color:var(--text-dim)">' + esc(a.input_summary) + '</span>';
+          h += '<span style="color:var(--text-dim);font-size:11px">' + dur + '</span>';
+          if (!a.success) h += ' <span class="badge severity-high">FAIL</span>';
+          h += '</div>';
+        });
+      }
+      h += '</div>';
+    });
+    h += '</div></div>';
+  }
+
+  // Files section
+  if (s.files_modified && s.files_modified.length || s.files_read_only && s.files_read_only.length) {
+    h += '<div class="card" style="margin-top:12px"><h3>Files</h3>';
+    if (s.files_modified && s.files_modified.length) {
+      h += '<div style="margin-bottom:8px"><strong style="color:var(--green)">Modified (' + s.files_modified.length + ')</strong>';
+      s.files_modified.forEach(function(f) {
+        h += '<div style="padding-left:12px;font-family:monospace;font-size:12px;color:var(--green)">W  ' + esc(f) + '</div>';
+      });
+      h += '</div>';
+    }
+    if (s.files_read_only && s.files_read_only.length) {
+      h += '<div><strong style="color:var(--text-dim)">Read Only (' + s.files_read_only.length + ')</strong>';
+      var readFiles = s.files_read_only.slice(0, 30);
+      readFiles.forEach(function(f) {
+        h += '<div style="padding-left:12px;font-family:monospace;font-size:12px;color:var(--text-dim)">R  ' + esc(f) + '</div>';
+      });
+      if (s.files_read_only.length > 30) {
+        h += '<div style="padding-left:12px;color:var(--text-dim);font-size:12px">... and ' + (s.files_read_only.length - 30) + ' more</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  // Decisions section
+  if (data.decisions && data.decisions.length) {
+    h += '<div class="card" style="margin-top:12px"><h3>Decisions (' + data.decisions.length + ')</h3>';
+    data.decisions.forEach(function(d, i) {
+      var deadLabel = d.is_dead_end ? ' <span class="badge severity-medium">backtracked</span>' : '';
+      h += '<div class="accordion" id="acc-decision-' + i + '">' +
+        '<div class="accordion-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
+        '<span>Decision ' + (i + 1) + ' (Turn ' + d.turn_index + ')' + deadLabel + '</span>' +
+        '<span class="accordion-arrow">&#9654;</span></div>' +
+        '<div class="accordion-body">';
+      h += '<div style="margin-bottom:6px"><strong>Actions:</strong> ' + esc(d.actions.join(', ')) + '</div>';
+      h += '<div style="margin-bottom:6px"><strong>Reasoning:</strong> <span style="color:var(--text-dim)">' + esc(d.thinking_preview) + '</span></div>';
+      if (d.files && d.files.length) {
+        h += '<div><strong>Files:</strong> ' + esc(d.files.slice(0, 5).join(', ')) + '</div>';
+      }
+      h += '</div></div>';
+    });
+    h += '</div>';
+  }
+
+  wrap.innerHTML = h;
+}
+
 function renderConfigs(configs) {
   var wrap = document.getElementById('config-wrap');
   if (!configs.length) { wrap.innerHTML = '<p class="empty-msg">No installed agent configurations</p>'; return; }
