@@ -154,7 +154,7 @@ class RivaStorage:
             (name, now, now, config_dir, api_domain),
         )
         conn.commit()
-        return cursor.lastrowid
+        return cursor.lastrowid  # type: ignore[return-value]
 
     def record_snapshot(self, instance, connection_count: int = 0) -> None:
         """Record a resource snapshot for an agent instance."""

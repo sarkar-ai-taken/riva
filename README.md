@@ -64,6 +64,7 @@ It **observes agent behavior** but does not execute agent actions.
 - **Environment scanning** — detect exposed API keys in environment variables
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
 - **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics
+- **OpenTelemetry export** — `riva otel` pushes metrics, logs, and traces to any OTel-compatible backend (Datadog, Grafana, Jaeger) via OTLP
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
 - **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, and forensic drill-in
@@ -132,6 +133,12 @@ pip install riva
 curl -fsSL https://raw.githubusercontent.com/sarkar-ai-taken/riva/main/install.sh | bash
 ```
 
+### Install with OpenTelemetry support
+
+```bash
+pip install riva[otel]
+```
+
 ### Install from source
 
 ```bash
@@ -157,6 +164,7 @@ One-shot scan for running AI agents.
 ```bash
 riva scan              # Rich table output
 riva scan --json       # JSON output
+riva scan --otel       # Scan and export metrics/logs to OTel collector
 ```
 
 ### `riva watch`
@@ -258,6 +266,39 @@ riva forensic trends --limit 50 --json    # JSON output
 ```
 
 Session identifiers: `latest`, a session slug (e.g. `witty-shimmying-haven`), a UUID prefix, or a full UUID.
+
+### `riva otel`
+
+OpenTelemetry export — push metrics, logs, and traces to any OTel-compatible backend.
+
+Requires the optional `otel` extra: `pip install riva[otel]`
+
+```bash
+riva otel status                            # Show SDK availability and config
+riva otel status --json                     # JSON output
+riva otel export-sessions                   # Export forensic sessions as traces
+riva otel export-sessions --limit 5         # Limit session count
+riva otel export-sessions --project myapp   # Filter by project
+```
+
+Configuration via `.riva/config.toml`:
+
+```toml
+[otel]
+enabled = true
+endpoint = "http://localhost:4318"
+protocol = "http"
+service_name = "riva"
+export_interval = 5.0
+metrics = true
+logs = true
+traces = false
+
+[otel.headers]
+Authorization = "Bearer <token>"
+```
+
+Or via environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `RIVA_OTEL_ENABLED`.
 
 ---
 
@@ -412,6 +453,12 @@ src/riva/
 │   ├── sandbox.py       # Sandbox / container detection
 │   ├── scanner.py       # Process scanning
 │   └── usage_stats.py   # Token/tool usage parsing
+├── otel/                # OpenTelemetry exporter (optional)
+│   ├── config.py        # OTel configuration loading
+│   ├── metrics.py       # Metrics exporter (gauges, counters)
+│   ├── logs.py          # Logs exporter (audit, lifecycle)
+│   ├── traces.py        # Traces exporter (forensic sessions)
+│   └── exporter.py      # Main coordinator
 ├── tray/                # System tray (macOS)
 │   ├── manager.py       # Swift binary compilation, spawn, IPC
 │   └── tray_mac.swift   # Native macOS NSStatusBar app

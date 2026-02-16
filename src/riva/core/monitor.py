@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 from riva.agents.base import AgentInstance, AgentStatus
 from riva.agents.registry import AgentRegistry, get_default_registry
 from riva.core.scanner import ProcessScanner
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,13 +54,17 @@ class ResourceMonitor:
         registry: AgentRegistry | None = None,
         interval: float = 2.0,
         history_size: int = 60,
-        storage: object | None = None,
+        storage: Any | None = None,
+        workspace_config: Any | None = None,
+        otel_exporter: Any | None = None,
     ) -> None:
         self._registry = registry or get_default_registry()
         self._scanner = ProcessScanner(cache_ttl=interval)
         self._interval = interval
         self._history_size = history_size
         self._storage = storage
+        self._workspace_config = workspace_config
+        self._otel_exporter = otel_exporter
 
         self._instances: list[AgentInstance] = []
         self._histories: dict[str, AgentHistory] = {}
@@ -65,14 +73,37 @@ class ResourceMonitor:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._poll_count = 0
+        self._previous_running_pids: set[int] = set()
+
+        # Event emitter for lifecycle events
+        self._emitter: Any | None = None
+        try:
+            from riva.core.events import EventEmitter
+
+            self._emitter = EventEmitter()
+        except Exception:
+            pass
+
+        # Hook runner (if workspace configured)
+        self._hook_runner = None
+        if workspace_config is not None:
+            try:
+                from riva.core.hooks import HookRunner
+
+                wc = workspace_config
+                if hasattr(wc, "hooks_enabled") and wc.hooks_enabled:
+                    self._hook_runner = HookRunner(wc.riva_dir, timeout=getattr(wc, "hooks_timeout", 30))
+            except Exception:
+                pass
 
         # Child process tree collector
+        self._tree_collector: Any | None = None
         try:
             from riva.core.children import ProcessTreeCollector
 
             self._tree_collector = ProcessTreeCollector()
         except Exception:
-            self._tree_collector = None
+            pass
 
     @property
     def instances(self) -> list[AgentInstance]:
@@ -227,6 +258,9 @@ class ResourceMonitor:
                     )
                 )
 
+        # Emit lifecycle events and fire hooks
+        self._emit_lifecycle_events(refreshed)
+
         # Persist to storage if available
         if self._storage is not None:
             try:
@@ -249,6 +283,13 @@ class ResourceMonitor:
             except Exception:
                 pass
 
+        # Push to OTel exporter if available
+        if self._otel_exporter is not None:
+            try:
+                self._otel_exporter.on_poll(refreshed)
+            except Exception:
+                pass
+
         # Periodic cleanup (every ~1800 polls = ~1 hour at 2s interval)
         self._poll_count += 1
         if self._storage is not None and self._poll_count % 1800 == 0:
@@ -256,6 +297,105 @@ class ResourceMonitor:
                 self._storage.cleanup()
             except Exception:
                 pass
+
+    @property
+    def emitter(self):
+        """Return the event emitter (if available)."""
+        return self._emitter
+
+    def _emit_lifecycle_events(self, instances: list[AgentInstance]) -> None:
+        """Compare current vs previous PIDs and emit lifecycle events."""
+        current_pids: set[int] = set()
+        for inst in instances:
+            if inst.status == AgentStatus.RUNNING and inst.pid:
+                current_pids.add(inst.pid)
+
+        new_pids = current_pids - self._previous_running_pids
+        gone_pids = self._previous_running_pids - current_pids
+        self._previous_running_pids = current_pids
+
+        # Build agent info for hooks
+        agent_dicts = [
+            {"name": inst.name, "pid": inst.pid, "status": inst.status.value}
+            for inst in instances
+            if inst.status == AgentStatus.RUNNING
+        ]
+
+        if self._emitter:
+            for inst in instances:
+                if inst.pid in new_pids:
+                    self._emitter.emit("agent_detected", agent_name=inst.name, pid=inst.pid)
+            for pid in gone_pids:
+                self._emitter.emit("agent_stopped", pid=pid)
+            self._emitter.emit(
+                "scan_complete",
+                agents=agent_dicts,
+                running_count=len(current_pids),
+            )
+
+        # Push lifecycle events to OTel exporter
+        if self._otel_exporter is not None:
+            try:
+                for inst in instances:
+                    if inst.pid in new_pids:
+                        self._otel_exporter.on_agent_detected(inst.name, inst.pid)
+                # Build a name lookup for stopped PIDs
+                for pid in gone_pids:
+                    self._otel_exporter.on_agent_stopped("unknown", pid)
+            except Exception:
+                pass
+
+        # Fire hooks in a daemon thread (never blocks polling)
+        if self._hook_runner and self._workspace_config:
+            self._fire_hooks_async(new_pids, gone_pids, agent_dicts, instances)
+
+    def _fire_hooks_async(
+        self,
+        new_pids: set[int],
+        gone_pids: set[int],
+        agent_dicts: list[dict],
+        instances: list[AgentInstance],
+    ) -> None:
+        """Fire hooks in a daemon thread so they never block polling."""
+        import time as _time
+
+        from riva.core.hooks import HookContext, HookEvent
+
+        wc = self._workspace_config
+
+        def _run_hooks():
+            now = _time.time()
+            ws_root = str(wc.root_dir)
+
+            if new_pids:
+                detected = [{"name": inst.name, "pid": inst.pid} for inst in instances if inst.pid in new_pids]
+                ctx = HookContext(
+                    event="agent_detected",
+                    timestamp=now,
+                    workspace_root=ws_root,
+                    agents=detected,
+                )
+                self._hook_runner.execute(HookEvent.AGENT_DETECTED, ctx)
+
+            if gone_pids:
+                ctx = HookContext(
+                    event="agent_stopped",
+                    timestamp=now,
+                    workspace_root=ws_root,
+                    extras={"stopped_pids": list(gone_pids)},
+                )
+                self._hook_runner.execute(HookEvent.AGENT_STOPPED, ctx)
+
+            ctx = HookContext(
+                event="scan_complete",
+                timestamp=now,
+                workspace_root=ws_root,
+                agents=agent_dicts,
+            )
+            self._hook_runner.execute(HookEvent.SCAN_COMPLETE, ctx)
+
+        t = threading.Thread(target=_run_hooks, daemon=True)
+        t.start()
 
     def _run(self) -> None:
         """Background thread loop."""

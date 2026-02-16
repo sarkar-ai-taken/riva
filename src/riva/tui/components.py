@@ -93,7 +93,18 @@ def build_agent_table(instances: list[AgentInstance]) -> Table:
         if len(cwd) > 40:
             cwd = "…" + cwd[-(39):]
 
-        table.add_row(inst.name, status_text, sandbox_text, pid_str, cpu_str, mem_str, children_str, launched_by_str, uptime_str, cwd)
+        table.add_row(
+            inst.name,
+            status_text,
+            sandbox_text,
+            pid_str,
+            cpu_str,
+            mem_str,
+            children_str,
+            launched_by_str,
+            uptime_str,
+            cwd,
+        )
 
     if not instances:
         table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "", "", "", "")

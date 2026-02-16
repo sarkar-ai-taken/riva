@@ -218,7 +218,7 @@ def classify_launcher(pid: int) -> LauncherInfo:
     # Walk ancestors (nearest-first), capped at _MAX_ANCESTOR_DEPTH
     ancestors: list[psutil.Process] = []
     try:
-        current = parent
+        current: psutil.Process | None = parent
         for _ in range(_MAX_ANCESTOR_DEPTH):
             if current is None:
                 break

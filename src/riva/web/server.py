@@ -377,39 +377,43 @@ def create_app(auth_token: str | None = None) -> Flask:
         for turn in session.turns:
             if not turn.thinking or not turn.actions:
                 continue
-            decisions.append({
-                "turn_index": turn.index,
-                "timestamp": turn.timestamp_start,
-                "actions": [a.tool_name for a in turn.actions[:8]],
-                "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
-                "files": turn.files_read + turn.files_written,
-                "is_dead_end": turn.is_dead_end,
-            })
+            decisions.append(
+                {
+                    "turn_index": turn.index,
+                    "timestamp": turn.timestamp_start,
+                    "actions": [a.tool_name for a in turn.actions[:8]],
+                    "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
+                    "files": turn.files_read + turn.files_written,
+                    "is_dead_end": turn.is_dead_end,
+                }
+            )
 
-        return jsonify({
-            "session": {
-                "session_id": session.session_id,
-                "slug": session.slug,
-                "project": session.project,
-                "model": session.model,
-                "git_branch": session.git_branch,
-                "timestamp_start": session.timestamp_start,
-                "timestamp_end": session.timestamp_end,
-                "duration": _fmt_duration(session.duration_seconds),
-                "turns": len(session.turns),
-                "actions": session.total_actions,
-                "tokens": session.total_tokens,
-                "files_read": session.total_files_read,
-                "files_written": session.total_files_written,
-                "dead_ends": session.dead_end_count,
-                "efficiency": round(session.efficiency, 2),
-                "files_modified": session.all_files_written,
-                "files_read_only": [f for f in session.all_files_read if f not in session.all_files_written],
-            },
-            "timeline": timeline,
-            "patterns": patterns,
-            "decisions": decisions,
-        })
+        return jsonify(
+            {
+                "session": {
+                    "session_id": session.session_id,
+                    "slug": session.slug,
+                    "project": session.project,
+                    "model": session.model,
+                    "git_branch": session.git_branch,
+                    "timestamp_start": session.timestamp_start,
+                    "timestamp_end": session.timestamp_end,
+                    "duration": _fmt_duration(session.duration_seconds),
+                    "turns": len(session.turns),
+                    "actions": session.total_actions,
+                    "tokens": session.total_tokens,
+                    "files_read": session.total_files_read,
+                    "files_written": session.total_files_written,
+                    "dead_ends": session.dead_end_count,
+                    "efficiency": round(session.efficiency, 2),
+                    "files_modified": session.all_files_written,
+                    "files_read_only": [f for f in session.all_files_read if f not in session.all_files_written],
+                },
+                "timeline": timeline,
+                "patterns": patterns,
+                "decisions": decisions,
+            }
+        )
 
     @app.route("/api/forensic/trends")
     def api_forensic_trends():
@@ -476,6 +480,76 @@ def create_app(auth_token: str | None = None) -> Flask:
         state = storage.get_state_at(ts)
         orphans = storage.get_orphans(resolved=False, hours=24.0)
         return jsonify({"state": state, "orphans": orphans, "timestamp": ts})
+
+    # ---- Workspace endpoints -----------------------------------------------
+
+    @app.route("/api/workspace")
+    def api_workspace():
+        from riva.core.workspace import find_workspace, load_workspace_config
+
+        riva_dir = find_workspace()
+        if not riva_dir:
+            return jsonify({"workspace": None})
+
+        config = load_workspace_config(riva_dir)
+        return jsonify(
+            {
+                "workspace": {
+                    "root_dir": str(config.root_dir),
+                    "riva_dir": str(config.riva_dir),
+                    "name": config.name,
+                    "scan_interval": config.scan_interval,
+                    "enabled_agents": config.enabled_agents,
+                    "disabled_agents": config.disabled_agents,
+                    "hooks_enabled": config.hooks_enabled,
+                    "hooks_timeout": config.hooks_timeout,
+                    "rules_injection_mode": config.rules_injection_mode,
+                    "rules_targets": config.rules_targets,
+                },
+                "timestamp": time.time(),
+            }
+        )
+
+    @app.route("/api/workspace/hooks")
+    def api_workspace_hooks():
+        from riva.core.hooks import HookEvent, HookRunner
+        from riva.core.workspace import find_workspace, load_workspace_config
+
+        riva_dir = find_workspace()
+        if not riva_dir:
+            return jsonify({"hooks": {}})
+
+        config = load_workspace_config(riva_dir)
+        runner = HookRunner(riva_dir, timeout=config.hooks_timeout)
+        hooks: dict[str, list[str]] = {}
+        for event in HookEvent:
+            found = runner.discover_hooks(event)
+            if found:
+                hooks[event.value] = [str(h) for h in found]
+
+        return jsonify({"hooks": hooks, "timestamp": time.time()})
+
+    @app.route("/api/workspace/rules")
+    def api_workspace_rules():
+        from riva.core.rules import load_rules
+        from riva.core.workspace import find_workspace
+
+        riva_dir = find_workspace()
+        if not riva_dir:
+            return jsonify({"rules": None})
+
+        rules = load_rules(riva_dir)
+        return jsonify(
+            {
+                "rules": {
+                    "files": [str(f) for f in rules.files],
+                    "contents": rules.contents,
+                    "combined": rules.combined,
+                    "is_empty": rules.is_empty,
+                },
+                "timestamp": time.time(),
+            }
+        )
 
     @app.route("/api/config")
     def api_config():

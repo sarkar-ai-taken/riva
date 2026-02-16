@@ -18,7 +18,6 @@ from pathlib import Path
 
 from riva.utils.jsonl import find_recent_sessions, stream_jsonl
 
-
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -79,7 +78,9 @@ class Turn:
 
     @property
     def files_written(self) -> list[str]:
-        return _unique([f for a in self.actions if a.tool_name in ("Edit", "Write", "NotebookEdit") for f in a.files_touched])
+        return _unique(
+            [f for a in self.actions if a.tool_name in ("Edit", "Write", "NotebookEdit") for f in a.files_touched]
+        )
 
 
 @dataclass
@@ -165,10 +166,17 @@ def _unique(items: list[str]) -> list[str]:
 
 
 _FAILURE_SIGNALS = (
-    "error", "Error", "ERROR",
-    "FAIL", "FAILED", "fail", "failed",
-    "traceback", "Traceback",
-    "exception", "Exception",
+    "error",
+    "Error",
+    "ERROR",
+    "FAIL",
+    "FAILED",
+    "fail",
+    "failed",
+    "traceback",
+    "Traceback",
+    "exception",
+    "Exception",
     "command not found",
     "No such file",
     "Permission denied",
@@ -265,15 +273,17 @@ def discover_sessions(
 
         try:
             stat = sf.stat()
-            sessions.append({
-                "session_id": session_id,
-                "slug": slug,
-                "project": project_dir,
-                "file_path": str(sf),
-                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "size_bytes": stat.st_size,
-                "first_timestamp": first_timestamp,
-            })
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "slug": slug,
+                    "project": project_dir,
+                    "file_path": str(sf),
+                    "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "size_bytes": stat.st_size,
+                    "first_timestamp": first_timestamp,
+                }
+            )
         except OSError:
             continue
 
@@ -493,11 +503,13 @@ def detect_patterns(session: ForensicSession) -> list[SessionPattern]:
     # Dead ends
     dead_ends = [t.index for t in session.turns if t.is_dead_end]
     if dead_ends:
-        patterns.append(SessionPattern(
-            pattern_type="dead_end",
-            description=f"{len(dead_ends)} turn(s) hit failures requiring backtracking",
-            turn_indices=dead_ends,
-        ))
+        patterns.append(
+            SessionPattern(
+                pattern_type="dead_end",
+                description=f"{len(dead_ends)} turn(s) hit failures requiring backtracking",
+                turn_indices=dead_ends,
+            )
+        )
 
     for turn in session.turns:
         # Search thrashing: >4 consecutive read/search ops
@@ -511,11 +523,13 @@ def detect_patterns(session: ForensicSession) -> list[SessionPattern]:
                 consec = 0
 
         if max_consec > 4:
-            patterns.append(SessionPattern(
-                pattern_type="search_thrash",
-                description=f"Turn {turn.index}: {max_consec} consecutive search operations",
-                turn_indices=[turn.index],
-            ))
+            patterns.append(
+                SessionPattern(
+                    pattern_type="search_thrash",
+                    description=f"Turn {turn.index}: {max_consec} consecutive search operations",
+                    turn_indices=[turn.index],
+                )
+            )
 
         # Retry loops: same tool+same target called >2 times
         # Only flag tools where repetition signals a problem (Bash, Grep).
@@ -533,12 +547,14 @@ def detect_patterns(session: ForensicSession) -> list[SessionPattern]:
                 target = call_key.split(":", 1)[1]
                 if len(target) > 50:
                     target = target[:47] + "..."
-                patterns.append(SessionPattern(
-                    pattern_type="retry_loop",
-                    description=f"Turn {turn.index}: {tool} called {count}x — {target}",
-                    turn_indices=[turn.index],
-                    severity="warning",
-                ))
+                patterns.append(
+                    SessionPattern(
+                        pattern_type="retry_loop",
+                        description=f"Turn {turn.index}: {tool} called {count}x — {target}",
+                        turn_indices=[turn.index],
+                        severity="warning",
+                    )
+                )
 
         # Write without read
         has_read = False
@@ -546,12 +562,14 @@ def detect_patterns(session: ForensicSession) -> list[SessionPattern]:
             if action.tool_name in ("Read", "Grep", "Glob"):
                 has_read = True
             if action.tool_name in ("Edit", "Write") and not has_read:
-                patterns.append(SessionPattern(
-                    pattern_type="write_without_read",
-                    description=f"Turn {turn.index}: wrote files without reading first",
-                    turn_indices=[turn.index],
-                    severity="warning",
-                ))
+                patterns.append(
+                    SessionPattern(
+                        pattern_type="write_without_read",
+                        description=f"Turn {turn.index}: wrote files without reading first",
+                        turn_indices=[turn.index],
+                        severity="warning",
+                    )
+                )
                 break
 
     return patterns
