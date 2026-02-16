@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -53,14 +55,27 @@ def watch() -> None:
 
 @cli.command()
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def scan(as_json: bool) -> None:
+@click.option("--otel", is_flag=True, help="Enable OpenTelemetry export for this scan.")
+def scan(as_json: bool, otel: bool) -> None:
     """One-shot scan for AI agents."""
-    monitor = ResourceMonitor()
-    instances = monitor.scan_once()
+    from riva.core.workspace import find_workspace, load_workspace_config
 
-    # Attach lightweight usage stats for each detected agent
-    registry = get_default_registry()
+    workspace_dir = find_workspace()
+    ws_config = None
+    if workspace_dir:
+        ws_config = load_workspace_config(workspace_dir)
+
+    otel_exporter = None
+    if otel:
+        otel_exporter = _make_otel_exporter(ws_config)
+
+    registry = get_default_registry(workspace_dir=workspace_dir)
+    monitor = ResourceMonitor(registry=registry, workspace_config=ws_config, otel_exporter=otel_exporter)
+    instances = monitor.scan_once()
     _attach_usage_stats(instances, registry)
+
+    if otel_exporter:
+        otel_exporter.shutdown()
 
     if as_json:
         output = []
@@ -203,8 +218,10 @@ def list_agents() -> None:
 def audit(as_json: bool, include_network: bool) -> None:
     """Run a security audit and print a report."""
     from riva.core.audit import run_audit
+    from riva.core.workspace import find_workspace
 
-    results = run_audit(include_network=include_network)
+    workspace_dir = find_workspace()
+    results = run_audit(include_network=include_network, workspace_dir=workspace_dir)
 
     if as_json:
         click.echo(
@@ -751,6 +768,295 @@ def tray(host: str, port: int) -> None:
     start_tray(version=version, web_host=host, web_port=port)
 
 
+@cli.command(name="init")
+@click.option("--agents", "-a", multiple=True, help="Agent names to include (can repeat).")
+@click.option("--no-hooks", is_flag=True, help="Skip creating hooks directory.")
+@click.option("--no-rules", is_flag=True, help="Skip creating rules directory.")
+def init_cmd(agents: tuple[str, ...], no_hooks: bool, no_rules: bool) -> None:
+    """Scaffold a .riva/ workspace in the current directory."""
+    from riva.core.workspace import find_workspace
+    from riva.core.workspace_init import init_workspace
+
+    console = Console()
+    existing = find_workspace()
+    if existing:
+        console.print(f"\n[yellow]Workspace already exists at {existing}[/yellow]\n")
+        return
+
+    agent_list = list(agents) if agents else None
+    riva_dir = init_workspace(
+        Path.cwd(),
+        agents=agent_list,
+        include_hooks=not no_hooks,
+        include_rules=not no_rules,
+    )
+    console.print(f"\n[bold green]Workspace created at {riva_dir}[/bold green]")
+    console.print("  config.toml   — main configuration")
+    console.print("  agents/       — per-agent overrides")
+    if not no_hooks:
+        console.print("  hooks/        — lifecycle hook scripts")
+    console.print("  detectors/    — workspace-scoped detectors")
+    if not no_rules:
+        console.print("  rules/        — policy files for injection")
+    console.print()
+
+
+@cli.group()
+def workspace() -> None:
+    """Workspace configuration commands."""
+
+
+@workspace.command(name="status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def workspace_status(as_json: bool) -> None:
+    """Show detected workspace config."""
+    from riva.core.workspace import find_workspace, load_workspace_config
+
+    console = Console()
+    riva_dir = find_workspace()
+    if not riva_dir:
+        if as_json:
+            click.echo(json.dumps({"workspace": None}))
+        else:
+            console.print("\n[dim]No .riva/ workspace found in current directory tree.[/dim]\n")
+        return
+
+    config = load_workspace_config(riva_dir)
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "workspace": {
+                        "root_dir": str(config.root_dir),
+                        "riva_dir": str(config.riva_dir),
+                        "name": config.name,
+                        "scan_interval": config.scan_interval,
+                        "enabled_agents": config.enabled_agents,
+                        "disabled_agents": config.disabled_agents,
+                        "hooks_enabled": config.hooks_enabled,
+                        "hooks_timeout": config.hooks_timeout,
+                        "rules_injection_mode": config.rules_injection_mode,
+                        "rules_targets": config.rules_targets,
+                    }
+                },
+                indent=2,
+            )
+        )
+    else:
+        table = Table(
+            title=f"Workspace: {config.name}",
+            expand=True,
+            title_style="bold cyan",
+            border_style="bright_blue",
+        )
+        table.add_column("Setting", style="bold white", min_width=20)
+        table.add_column("Value", min_width=40)
+
+        table.add_row("Root directory", str(config.root_dir))
+        table.add_row("Riva directory", str(config.riva_dir))
+        table.add_row("Scan interval", f"{config.scan_interval}s")
+        table.add_row("Enabled agents", ", ".join(config.enabled_agents) or "[dim]all[/dim]")
+        table.add_row("Disabled agents", ", ".join(config.disabled_agents) or "[dim]none[/dim]")
+        table.add_row("Hooks enabled", str(config.hooks_enabled))
+        table.add_row("Hooks timeout", f"{config.hooks_timeout}s")
+        table.add_row("Rules injection", config.rules_injection_mode)
+        table.add_row("Rules targets", ", ".join(config.rules_targets) or "[dim]none[/dim]")
+
+        console.print()
+        console.print(table)
+        console.print()
+
+
+@workspace.command(name="hooks")
+@click.option("--test", "test_event", default=None, help="Test-fire a hook event (e.g. scan_complete).")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def workspace_hooks(test_event: str | None, as_json: bool) -> None:
+    """List hooks or test-fire an event."""
+    from riva.core.hooks import HookContext, HookEvent, HookRunner
+    from riva.core.workspace import find_workspace, load_workspace_config
+
+    console = Console()
+    riva_dir = find_workspace()
+    if not riva_dir:
+        console.print("\n[dim]No .riva/ workspace found.[/dim]\n")
+        return
+
+    config = load_workspace_config(riva_dir)
+    runner = HookRunner(riva_dir, timeout=config.hooks_timeout)
+
+    if test_event:
+        try:
+            event = HookEvent(test_event)
+        except ValueError:
+            valid = ", ".join(e.value for e in HookEvent)
+            console.print(f"\n[red]Unknown event '{test_event}'. Valid: {valid}[/red]\n")
+            return
+
+        import time
+
+        ctx = HookContext(
+            event=test_event,
+            timestamp=time.time(),
+            workspace_root=str(config.root_dir),
+            agents=[],
+        )
+        results = runner.execute(event, ctx)
+        if as_json:
+            click.echo(
+                json.dumps(
+                    [
+                        {
+                            "hook": r.hook_path,
+                            "success": r.success,
+                            "output": r.output,
+                            "error": r.error,
+                            "duration": r.duration,
+                        }
+                        for r in results
+                    ],
+                    indent=2,
+                )
+            )
+        else:
+            if not results:
+                console.print(f"\n[dim]No hooks found for event '{test_event}'.[/dim]\n")
+                return
+            for r in results:
+                status = "[green]OK[/green]" if r.success else "[red]FAIL[/red]"
+                console.print(f"  {status} {r.hook_path} ({r.duration:.2f}s)")
+                if r.output:
+                    console.print(f"    [dim]{r.output.strip()}[/dim]")
+                if r.error:
+                    console.print(f"    [red]{r.error.strip()}[/red]")
+            console.print()
+    else:
+        all_hooks: list[tuple[str, list]] = []
+        for event in HookEvent:
+            hooks = runner.discover_hooks(event)
+            if hooks:
+                all_hooks.append((event.value, hooks))
+
+        if as_json:
+            click.echo(json.dumps({ev: [str(h) for h in hooks] for ev, hooks in all_hooks}, indent=2))
+        else:
+            if not all_hooks:
+                console.print("\n[dim]No hooks found in .riva/hooks/.[/dim]\n")
+                return
+
+            table = Table(
+                title="Workspace Hooks",
+                expand=True,
+                title_style="bold cyan",
+                border_style="bright_blue",
+            )
+            table.add_column("Event", style="bold white", min_width=20)
+            table.add_column("Hook Script", min_width=40)
+
+            for event_name, hooks in all_hooks:
+                for hook in hooks:
+                    table.add_row(event_name, str(hook))
+
+            console.print()
+            console.print(table)
+            console.print()
+
+
+@workspace.command(name="rules")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def workspace_rules(as_json: bool) -> None:
+    """Show loaded rules."""
+    from riva.core.rules import load_rules
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    riva_dir = find_workspace()
+    if not riva_dir:
+        console.print("\n[dim]No .riva/ workspace found.[/dim]\n")
+        return
+
+    rules = load_rules(riva_dir)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "files": [str(f) for f in rules.files],
+                    "contents": rules.contents,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if rules.is_empty:
+            console.print("\n[dim]No rules found in .riva/rules/.[/dim]\n")
+            return
+
+        for f in rules.files:
+            content = rules.contents.get(f.name, "")
+            if content.strip():
+                console.print(f"\n[bold cyan]{f.name}[/bold cyan]")
+                console.print(content.strip())
+        console.print()
+
+
+@workspace.command(name="inject")
+@click.option("--agent", "agent_name", default=None, help="Target agent slug (e.g. claude-code, cursor).")
+@click.option("--dry-run", is_flag=True, help="Show what would be injected without writing.")
+def workspace_inject(agent_name: str | None, dry_run: bool) -> None:
+    """Inject rules into agent config files."""
+    from riva.core.rules import INJECTION_FUNCTIONS, inject_rules, load_rules
+    from riva.core.workspace import _slugify_agent_name, find_workspace
+
+    console = Console()
+    riva_dir = find_workspace()
+    if not riva_dir:
+        console.print("\n[dim]No .riva/ workspace found.[/dim]\n")
+        return
+
+    rules = load_rules(riva_dir)
+    if rules.is_empty:
+        console.print("\n[dim]No rules to inject.[/dim]\n")
+        return
+
+    project_dir = riva_dir.parent
+    targets = [_slugify_agent_name(agent_name)] if agent_name else list(INJECTION_FUNCTIONS.keys())
+
+    if dry_run:
+        console.print("\n[bold cyan]Dry run — would inject:[/bold cyan]\n")
+        console.print(rules.combined)
+        console.print(f"\n[dim]Targets: {', '.join(targets)}[/dim]\n")
+        return
+
+    for slug in targets:
+        result = inject_rules(rules, project_dir, slug)
+        if result:
+            console.print(f"  [green]Injected[/green] → {result}")
+        else:
+            console.print(f"  [dim]Skipped unknown agent: {slug}[/dim]")
+    console.print()
+
+
+@workspace.command(name="eject")
+def workspace_eject() -> None:
+    """Remove riva-injected content from agent config files."""
+    from riva.core.rules import remove_injected_rules
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    riva_dir = find_workspace()
+    if not riva_dir:
+        console.print("\n[dim]No .riva/ workspace found.[/dim]\n")
+        return
+
+    modified = remove_injected_rules(riva_dir.parent)
+    if modified:
+        for f in modified:
+            console.print(f"  [yellow]Cleaned[/yellow] → {f}")
+    else:
+        console.print("\n[dim]No riva-injected content found.[/dim]")
+    console.print()
+
+
 @cli.command()
 def config() -> None:
     """Show parsed configurations for detected agents."""
@@ -843,7 +1149,7 @@ def forensic_sessions(project: str | None, limit: int, as_json: bool) -> None:
 
         console.print()
         console.print(table)
-        console.print(f"\n  [dim]Use [bold]riva forensic summary <slug>[/bold] to inspect a session.[/dim]\n")
+        console.print("\n  [dim]Use [bold]riva forensic summary <slug>[/bold] to inspect a session.[/dim]\n")
 
 
 @forensic.command(name="timeline")
@@ -866,25 +1172,27 @@ def forensic_timeline(session: str, as_json: bool) -> None:
     if as_json:
         turns = []
         for t in parsed.turns:
-            turns.append({
-                "index": t.index,
-                "prompt": t.prompt[:200],
-                "timestamp_start": t.timestamp_start,
-                "timestamp_end": t.timestamp_end,
-                "model": t.model,
-                "total_tokens": t.total_tokens,
-                "is_dead_end": t.is_dead_end,
-                "actions": [
-                    {
-                        "tool": a.tool_name,
-                        "input": a.input_summary,
-                        "duration_ms": a.duration_ms,
-                        "success": a.success,
-                        "files": a.files_touched,
-                    }
-                    for a in t.actions
-                ],
-            })
+            turns.append(
+                {
+                    "index": t.index,
+                    "prompt": t.prompt[:200],
+                    "timestamp_start": t.timestamp_start,
+                    "timestamp_end": t.timestamp_end,
+                    "model": t.model,
+                    "total_tokens": t.total_tokens,
+                    "is_dead_end": t.is_dead_end,
+                    "actions": [
+                        {
+                            "tool": a.tool_name,
+                            "input": a.input_summary,
+                            "duration_ms": a.duration_ms,
+                            "success": a.success,
+                            "files": a.files_touched,
+                        }
+                        for a in t.actions
+                    ],
+                }
+            )
         click.echo(json.dumps({"session_id": parsed.session_id, "slug": parsed.slug, "turns": turns}, indent=2))
     else:
         console = Console()
@@ -916,23 +1224,28 @@ def forensic_summary(session: str, as_json: bool) -> None:
     parsed = parse_session(path)
 
     if as_json:
-        click.echo(json.dumps({
-            "session_id": parsed.session_id,
-            "slug": parsed.slug,
-            "project": parsed.project,
-            "model": parsed.model,
-            "git_branch": parsed.git_branch,
-            "timestamp_start": parsed.timestamp_start,
-            "timestamp_end": parsed.timestamp_end,
-            "duration_seconds": parsed.duration_seconds,
-            "turns": len(parsed.turns),
-            "actions": parsed.total_actions,
-            "total_tokens": parsed.total_tokens,
-            "files_read": parsed.total_files_read,
-            "files_written": parsed.total_files_written,
-            "dead_ends": parsed.dead_end_count,
-            "efficiency": parsed.efficiency,
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "session_id": parsed.session_id,
+                    "slug": parsed.slug,
+                    "project": parsed.project,
+                    "model": parsed.model,
+                    "git_branch": parsed.git_branch,
+                    "timestamp_start": parsed.timestamp_start,
+                    "timestamp_end": parsed.timestamp_end,
+                    "duration_seconds": parsed.duration_seconds,
+                    "turns": len(parsed.turns),
+                    "actions": parsed.total_actions,
+                    "total_tokens": parsed.total_tokens,
+                    "files_read": parsed.total_files_read,
+                    "files_written": parsed.total_files_written,
+                    "dead_ends": parsed.dead_end_count,
+                    "efficiency": parsed.efficiency,
+                },
+                indent=2,
+            )
+        )
     else:
         console = Console()
         title = parsed.slug or parsed.session_id[:12]
@@ -960,14 +1273,24 @@ def forensic_patterns(session: str, as_json: bool) -> None:
     parsed = parse_session(path)
 
     if as_json:
-        click.echo(json.dumps({
-            "session_id": parsed.session_id,
-            "slug": parsed.slug,
-            "patterns": [
-                {"type": p.pattern_type, "description": p.description, "severity": p.severity, "turns": p.turn_indices}
-                for p in parsed.patterns
-            ],
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "session_id": parsed.session_id,
+                    "slug": parsed.slug,
+                    "patterns": [
+                        {
+                            "type": p.pattern_type,
+                            "description": p.description,
+                            "severity": p.severity,
+                            "turns": p.turn_indices,
+                        }
+                        for p in parsed.patterns
+                    ],
+                },
+                indent=2,
+            )
+        )
     else:
         console = Console()
         title = parsed.slug or parsed.session_id[:12]
@@ -998,14 +1321,16 @@ def forensic_decisions(session: str, as_json: bool) -> None:
         decisions = []
         for turn in parsed.turns:
             if turn.thinking and turn.actions:
-                decisions.append({
-                    "turn": turn.index,
-                    "timestamp": turn.timestamp_start,
-                    "actions": [a.tool_name for a in turn.actions],
-                    "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
-                    "files": turn.files_read + turn.files_written,
-                    "is_dead_end": turn.is_dead_end,
-                })
+                decisions.append(
+                    {
+                        "turn": turn.index,
+                        "timestamp": turn.timestamp_start,
+                        "actions": [a.tool_name for a in turn.actions],
+                        "thinking_preview": turn.thinking[0][:300] if turn.thinking else "",
+                        "files": turn.files_read + turn.files_written,
+                        "is_dead_end": turn.is_dead_end,
+                    }
+                )
         click.echo(json.dumps({"session_id": parsed.session_id, "slug": parsed.slug, "decisions": decisions}, indent=2))
     else:
         console = Console()
@@ -1034,12 +1359,17 @@ def forensic_files(session: str, as_json: bool) -> None:
     parsed = parse_session(path)
 
     if as_json:
-        click.echo(json.dumps({
-            "session_id": parsed.session_id,
-            "slug": parsed.slug,
-            "files_read": parsed.all_files_read,
-            "files_written": parsed.all_files_written,
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "session_id": parsed.session_id,
+                    "slug": parsed.slug,
+                    "files_read": parsed.all_files_read,
+                    "files_written": parsed.all_files_written,
+                },
+                indent=2,
+            )
+        )
     else:
         console = Console()
         title = parsed.slug or parsed.session_id[:12]
@@ -1077,13 +1407,154 @@ def forensic_trends(project: str | None, limit: int, as_json: bool) -> None:
     if as_json:
         # Make top_tools serializable
         trends["top_tools"] = [{"tool": t[0], "count": t[1]} for t in trends.get("top_tools", [])]
-        trends["efficiency_series"] = [{"session": s[0], "efficiency": s[1]} for s in trends.get("efficiency_series", [])]
+        trends["efficiency_series"] = [
+            {"session": s[0], "efficiency": s[1]} for s in trends.get("efficiency_series", [])
+        ]
         click.echo(json.dumps(trends, indent=2))
     else:
         console.print(f"\n[bold cyan]Trends ({len(parsed)} sessions)[/bold cyan]\n")
         for line in format_trends(trends):
             console.print(line)
         console.print()
+
+
+# ---------------------------------------------------------------------------
+# OTel command group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def otel() -> None:
+    """OpenTelemetry export commands."""
+
+
+@otel.command(name="status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def otel_status(as_json: bool) -> None:
+    """Show OTel SDK availability and current configuration."""
+    from riva.core.workspace import find_workspace, load_workspace_config
+
+    try:
+        from riva.otel import is_available
+    except ImportError:
+        is_available = lambda: False  # noqa: E731
+
+    available = is_available()
+
+    workspace_dir = find_workspace()
+    ws_config = None
+    if workspace_dir:
+        ws_config = load_workspace_config(workspace_dir)
+
+    from riva.otel.config import load_otel_config
+
+    cfg = load_otel_config(ws_config)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "sdk_available": available,
+                    "enabled": cfg.enabled,
+                    "endpoint": cfg.endpoint,
+                    "protocol": cfg.protocol,
+                    "service_name": cfg.service_name,
+                    "export_interval": cfg.export_interval,
+                    "metrics": cfg.metrics,
+                    "logs": cfg.logs,
+                    "traces": cfg.traces,
+                },
+                indent=2,
+            )
+        )
+    else:
+        console = Console()
+        table = Table(
+            title="OpenTelemetry Status",
+            expand=True,
+            title_style="bold cyan",
+            border_style="bright_blue",
+        )
+        table.add_column("Setting", style="bold white", min_width=20)
+        table.add_column("Value", min_width=40)
+
+        sdk_status = "[bold green]installed[/bold green]" if available else "[bold red]not installed[/bold red]"
+        table.add_row("SDK available", sdk_status)
+        table.add_row("Enabled", str(cfg.enabled))
+        table.add_row("Endpoint", cfg.endpoint)
+        table.add_row("Protocol", cfg.protocol)
+        table.add_row("Service name", cfg.service_name)
+        table.add_row("Export interval", f"{cfg.export_interval}s")
+        table.add_row("Metrics", str(cfg.metrics))
+        table.add_row("Logs", str(cfg.logs))
+        table.add_row("Traces", str(cfg.traces))
+
+        console.print()
+        console.print(table)
+        if not available:
+            console.print("\n  [dim]Install with: pip install riva[otel][/dim]")
+        console.print()
+
+
+@otel.command(name="export-sessions")
+@click.option("--limit", default=10, type=int, help="Max sessions to export.")
+@click.option("--project", default=None, help="Filter by project name substring.")
+def otel_export_sessions(limit: int, project: str | None) -> None:
+    """One-shot export of forensic sessions as OTel traces."""
+    from riva.otel import RivaOTelExporter, is_available
+
+    if not is_available():
+        click.echo("Error: opentelemetry SDK not installed. Install with: pip install riva[otel]", err=True)
+        raise SystemExit(1)
+
+    from riva.core.forensic import discover_sessions, parse_session
+    from riva.core.workspace import find_workspace, load_workspace_config
+    from riva.otel.config import load_otel_config
+
+    workspace_dir = find_workspace()
+    ws_config = None
+    if workspace_dir:
+        ws_config = load_workspace_config(workspace_dir)
+
+    cfg = load_otel_config(ws_config)
+    cfg.enabled = True
+    cfg.traces = True
+
+    session_list = discover_sessions(project_filter=project, limit=limit)
+    if not session_list:
+        click.echo("No sessions found.")
+        raise SystemExit(1)
+
+    console = Console()
+    console.print(f"\n[dim]Parsing {len(session_list)} sessions...[/dim]")
+
+    parsed = [parse_session(s["file_path"]) for s in session_list]
+
+    exporter = RivaOTelExporter(cfg)
+    try:
+        exporter.export_sessions(parsed)
+        console.print(f"[bold green]Exported {len(parsed)} session(s) as traces to {cfg.endpoint}[/bold green]\n")
+    finally:
+        exporter.shutdown()
+
+
+def _make_otel_exporter(ws_config: Any | None = None) -> Any | None:
+    """Create an OTel exporter if the SDK is available, or print a warning."""
+    try:
+        from riva.otel import RivaOTelExporter, is_available
+
+        if not is_available():
+            click.echo("Warning: opentelemetry SDK not installed. Install with: pip install riva[otel]", err=True)
+            return None
+
+        from riva.otel.config import load_otel_config
+
+        cfg = load_otel_config(ws_config)
+        cfg.enabled = True  # --otel flag forces enabled
+        return RivaOTelExporter(cfg)
+    except Exception as exc:
+        click.echo(f"Warning: failed to initialize OTel exporter: {exc}", err=True)
+        return None
 
 
 def _attach_usage_stats(instances: list, registry) -> None:

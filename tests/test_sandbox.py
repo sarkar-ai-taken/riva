@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import psutil
-import pytest
 
 from riva.core.sandbox import (
     SandboxInfo,

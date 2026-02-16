@@ -7,6 +7,7 @@ import importlib.metadata
 import importlib.util
 import logging
 from pathlib import Path
+from typing import Callable as _Callable
 
 from riva.agents.base import AgentDetector
 
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Module-level registry for @register_agent decorator
 # ---------------------------------------------------------------------------
 
-_REGISTERED_FACTORIES: list[type[AgentDetector] | callable] = []
+_REGISTERED_FACTORIES: list[type[AgentDetector] | _Callable] = []
 
 
 def register_agent(cls_or_fn):
@@ -132,7 +133,10 @@ class AgentRegistry:
         try:
             eps = importlib.metadata.entry_points()
             # Python 3.12+: eps is a SelectableGroups / dict-like
-            group = eps.select(group=_ENTRY_POINT_GROUP) if hasattr(eps, "select") else eps.get(_ENTRY_POINT_GROUP, [])
+            if hasattr(eps, "select"):
+                group = eps.select(group=_ENTRY_POINT_GROUP)
+            else:
+                group = eps.get(_ENTRY_POINT_GROUP, [])  # type: ignore[attr-defined]
             for ep in group:
                 try:
                     factory = ep.load()
@@ -169,16 +173,45 @@ class AgentRegistry:
             except Exception:
                 logger.debug("Plugin %s failed", path, exc_info=True)
 
-    def load_all(self) -> None:
+    def load_workspace_detectors(self, riva_dir: Path) -> None:
+        """Load detector plugins from ``.riva/detectors/`` directory.
+
+        Each ``.py`` file must expose a ``create_detector()`` function that
+        returns an ``AgentDetector``.
+        """
+        detectors_dir = riva_dir / "detectors"
+        if not detectors_dir.is_dir():
+            return
+
+        for path in sorted(detectors_dir.glob("*.py")):
+            try:
+                spec = importlib.util.spec_from_file_location(f"riva_workspace_detector_{path.stem}", path)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if hasattr(module, "create_detector"):
+                        det = _instantiate(module.create_detector)
+                        if det:
+                            self.register(det)
+            except Exception:
+                logger.debug("Workspace detector %s failed", path, exc_info=True)
+
+    def load_all(self, workspace_dir: Path | None = None) -> None:
         """Load from every source in priority order."""
         self.load_decorated()
         self.load_builtins()
         self.load_entry_points()
         self.load_plugins()
+        if workspace_dir is not None:
+            self.load_workspace_detectors(workspace_dir)
 
 
-def get_default_registry() -> AgentRegistry:
-    """Create a fully-loaded registry (builtins + entry_points + plugins)."""
+def get_default_registry(workspace_dir: Path | None = None) -> AgentRegistry:
+    """Create a fully-loaded registry (builtins + entry_points + plugins).
+
+    If *workspace_dir* is a ``.riva/`` directory, workspace-scoped detectors
+    from ``.riva/detectors/`` are loaded last.
+    """
     registry = AgentRegistry()
-    registry.load_all()
+    registry.load_all(workspace_dir=workspace_dir)
     return registry

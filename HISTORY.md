@@ -1,5 +1,29 @@
 # Release History
 
+## v0.3.1 (2026-02-15)
+
+### OpenTelemetry Exporter
+
+- New **`riva otel`** command group for OpenTelemetry integration — push Riva's observability data to any OTel-compatible backend (Datadog, Grafana, Jaeger, etc.)
+- **Optional dependency** — `pip install riva[otel]` installs `opentelemetry-api`, `opentelemetry-sdk`, and `opentelemetry-exporter-otlp-proto-http`; Riva works fully without it
+- **Three signal types**:
+  - **Metrics**: Observable gauges for per-agent CPU/memory/connections/uptime/child processes, counters for lifecycle events and audit findings
+  - **Logs**: Audit findings and lifecycle events (agent detected/stopped) as OTel log records with severity mapping
+  - **Traces**: Forensic sessions exported as span trees — session root span with turn children and action grandchildren
+- **`riva otel status`** — shows SDK availability, current config, and endpoint
+- **`riva otel export-sessions`** — one-shot export of forensic sessions as OTel traces
+- **`riva scan --otel`** — enables OTel export for a single scan
+- **Configuration** via `[otel]` section in `.riva/config.toml`, environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `RIVA_OTEL_ENABLED`), or CLI flags
+- **Graceful degradation** — all OTel code is import-guarded; no errors when SDK is not installed
+- **Monitor integration** — `ResourceMonitor` pushes metrics on each poll and emits lifecycle events to the OTel exporter
+- New subpackage: `src/riva/otel/` with `config.py`, `metrics.py`, `logs.py`, `traces.py`, `exporter.py`
+- 29 new tests covering config loading, all three exporters, graceful degradation, and workspace integration
+- Workspace `riva init` template now includes a commented-out `[otel]` section
+
+### CI
+
+- Fixed all ruff lint/format and mypy type-check issues across the codebase
+
 ## v0.3.0 (2026-02-08)
 
 ### Session Forensics

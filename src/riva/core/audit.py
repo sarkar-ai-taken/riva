@@ -126,7 +126,10 @@ class AuditResult:
     category: str = "general"
 
 
-def run_audit(include_network: bool = False) -> list[AuditResult]:
+def run_audit(
+    include_network: bool = False,
+    workspace_dir: Path | None = None,
+) -> list[AuditResult]:
     """Run all security audit checks and return results."""
     results: list[AuditResult] = []
     results.extend(_check_api_key_exposure())
@@ -142,6 +145,9 @@ def run_audit(include_network: bool = False) -> list[AuditResult]:
     results.extend(_check_suspicious_launcher())
     results.extend(_check_mcp_stdio_commands())
     results.extend(_check_config_file_permissions())
+
+    if workspace_dir is not None:
+        results.extend(_check_workspace_security(workspace_dir))
 
     if include_network:
         results.extend(_check_unencrypted_connections())
@@ -750,6 +756,165 @@ def _check_config_file_permissions() -> list[AuditResult]:
                 category="permissions",
             )
         )
+    return results
+
+
+def _check_workspace_security(riva_dir: Path) -> list[AuditResult]:
+    """Audit the .riva/ workspace directory for security issues."""
+    results: list[AuditResult] = []
+
+    # 1. Directory permissions — .riva/ should not be world-readable
+    try:
+        mode = os.stat(riva_dir).st_mode
+        if mode & 0o077:
+            results.append(
+                AuditResult(
+                    check="Workspace Directory Permissions",
+                    status="warn",
+                    detail=f"{riva_dir} is group/other-accessible (mode {oct(stat.S_IMODE(mode))})",
+                    severity="medium",
+                    category="workspace",
+                )
+            )
+        else:
+            results.append(
+                AuditResult(
+                    check="Workspace Directory Permissions",
+                    status="pass",
+                    detail=f"{riva_dir} permissions OK ({oct(stat.S_IMODE(mode))})",
+                    severity="info",
+                    category="workspace",
+                )
+            )
+    except OSError as exc:
+        results.append(
+            AuditResult(
+                check="Workspace Directory Permissions",
+                status="warn",
+                detail=f"Could not stat {riva_dir}: {exc}",
+                severity="low",
+                category="workspace",
+            )
+        )
+
+    # 2. config.local.toml should be gitignored
+    local_config = riva_dir / "config.local.toml"
+    gitignore = riva_dir / ".gitignore"
+    if local_config.is_file():
+        gitignored = False
+        if gitignore.is_file():
+            try:
+                content = gitignore.read_text()
+                gitignored = "config.local.toml" in content
+            except OSError:
+                pass
+        if not gitignored:
+            results.append(
+                AuditResult(
+                    check="Workspace Local Config",
+                    status="warn",
+                    detail="config.local.toml exists but may not be gitignored",
+                    severity="medium",
+                    category="workspace",
+                )
+            )
+        else:
+            results.append(
+                AuditResult(
+                    check="Workspace Local Config",
+                    status="pass",
+                    detail="config.local.toml is properly gitignored",
+                    severity="info",
+                    category="workspace",
+                )
+            )
+
+    # 3. Hook file permissions — should be executable, not world-writable
+    hooks_dir = riva_dir / "hooks"
+    if hooks_dir.is_dir():
+        for hook in hooks_dir.iterdir():
+            if hook.suffix not in (".sh", ".py"):
+                continue
+            try:
+                mode = os.stat(hook).st_mode
+                if hook.suffix == ".sh" and not (mode & stat.S_IXUSR):
+                    results.append(
+                        AuditResult(
+                            check=f"Hook Permissions ({hook.name})",
+                            status="warn",
+                            detail=f"Shell hook {hook.name} is not executable",
+                            severity="low",
+                            category="workspace",
+                        )
+                    )
+                if mode & 0o002:
+                    results.append(
+                        AuditResult(
+                            check=f"Hook Permissions ({hook.name})",
+                            status="fail",
+                            detail=f"Hook {hook.name} is world-writable (mode {oct(stat.S_IMODE(mode))})",
+                            severity="high",
+                            category="workspace",
+                        )
+                    )
+            except OSError:
+                pass
+
+    # 4. Detector plugin security — same checks as global plugins
+    detectors_dir = riva_dir / "detectors"
+    if detectors_dir.is_dir():
+        try:
+            mode = os.stat(detectors_dir).st_mode
+            if mode & 0o077:
+                results.append(
+                    AuditResult(
+                        check="Workspace Detectors Permissions",
+                        status="fail",
+                        detail=(
+                            f"{detectors_dir} is group/other-accessible "
+                            f"(mode {oct(stat.S_IMODE(mode))}). "
+                            "Arbitrary code can be loaded from workspace detectors."
+                        ),
+                        severity="high",
+                        category="workspace",
+                    )
+                )
+        except OSError:
+            pass
+
+    # 5. Secrets in rules files
+    token_patterns = ["sk-", "ghp_", "ghu_", "sk-ant-", "AIza", "AKIA", "eyJ"]
+    rules_dir = riva_dir / "rules"
+    if rules_dir.is_dir():
+        for rule_file in rules_dir.glob("*.md"):
+            try:
+                content = rule_file.read_text(errors="replace")
+                for pattern in token_patterns:
+                    if pattern in content:
+                        results.append(
+                            AuditResult(
+                                check=f"Secrets in Rules ({rule_file.name})",
+                                status="fail",
+                                detail=f"Possible secret (pattern: '{pattern}...') in {rule_file}",
+                                severity="critical",
+                                category="workspace",
+                            )
+                        )
+                        break
+            except OSError:
+                pass
+
+    if not results:
+        results.append(
+            AuditResult(
+                check="Workspace Security",
+                status="pass",
+                detail="Workspace security checks passed.",
+                severity="info",
+                category="workspace",
+            )
+        )
+
     return results
 
 

@@ -6,8 +6,6 @@ import logging
 import os
 import platform
 import subprocess
-import sys
-import threading
 import webbrowser
 from pathlib import Path
 
@@ -61,12 +59,7 @@ def _compile(source: Path, binary: Path) -> bool:
 
 def _open_terminal_with(command: str) -> None:
     """Open a new Terminal.app window running *command*."""
-    apple_script = (
-        'tell application "Terminal"\n'
-        "  activate\n"
-        f'  do script "{command}"\n'
-        "end tell"
-    )
+    apple_script = f'tell application "Terminal"\n  activate\n  do script "{command}"\nend tell'
     subprocess.Popen(
         ["osascript", "-e", apple_script],
         stdout=subprocess.DEVNULL,
@@ -153,10 +146,14 @@ def start_tray(
     child = subprocess.Popen(
         [
             str(binary),
-            "--version", version,
-            "--web-host", web_host,
-            "--web-port", str(web_port),
-            "--pid", str(os.getpid()),
+            "--version",
+            version,
+            "--web-host",
+            web_host,
+            "--web-port",
+            str(web_port),
+            "--pid",
+            str(os.getpid()),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
