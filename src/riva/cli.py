@@ -757,15 +757,103 @@ def replay(at_time: str | None, hours: float, as_json: bool) -> None:
         storage.close()
 
 
-@cli.command()
+@cli.group(invoke_without_command=True)
 @click.option("--host", default="127.0.0.1", help="Web dashboard host.")
 @click.option("--port", default=8585, type=int, help="Web dashboard port.")
-def tray(host: str, port: int) -> None:
-    """Launch the system tray (macOS)."""
-    from riva.tray.manager import start_tray
+@click.pass_context
+def tray(ctx: click.Context, host: str, port: int) -> None:
+    """System tray (start/stop/status/logs)."""
+    ctx.ensure_object(dict)
+    ctx.obj["host"] = host
+    ctx.obj["port"] = port
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(tray_start)
 
+
+@tray.command(name="start")
+@click.option("--foreground", "-f", is_flag=True, help="Run in foreground instead of daemonizing.")
+@click.pass_context
+def tray_start(ctx: click.Context, foreground: bool = False) -> None:
+    """Start the system tray."""
+    host = ctx.obj["host"]
+    port = ctx.obj["port"]
     version = _get_version()
-    start_tray(version=version, web_host=host, web_port=port)
+    console = Console()
+
+    if foreground:
+        from riva.tray.manager import start_tray
+
+        console.print("\n[bold cyan]RIVA System Tray[/bold cyan] running in foreground\n")
+        start_tray(version=version, web_host=host, web_port=port)
+    else:
+        from riva.tray.daemon import start_tray_daemon
+
+        try:
+            pid = start_tray_daemon(version, host, port)
+        except RuntimeError as exc:
+            console.print(f"\n[bold red]Error:[/bold red] {exc}\n")
+            raise SystemExit(1) from exc
+        console.print(f"\n[bold cyan]RIVA System Tray[/bold cyan] started (PID {pid})")
+        console.print("  Logs: ~/.config/riva/tray.log\n")
+
+
+@tray.command(name="stop")
+def tray_stop() -> None:
+    """Stop the system tray."""
+    from riva.tray.daemon import stop_tray_daemon
+
+    console = Console()
+    stopped = stop_tray_daemon()
+    if stopped:
+        console.print("\n[bold green]Tray stopped.[/bold green]\n")
+    else:
+        console.print("\n[dim]Tray is not running.[/dim]\n")
+
+
+@tray.command(name="status")
+def tray_status() -> None:
+    """Show tray status."""
+    from riva.tray.daemon import tray_daemon_status
+
+    console = Console()
+    info = tray_daemon_status()
+    if info["running"]:
+        console.print(f"\n[bold green]Running[/bold green] (PID {info['pid']})")
+    else:
+        console.print("\n[dim]Not running.[/dim]")
+    console.print(f"  Log file: {info['log_file']}\n")
+
+
+@tray.command(name="logs")
+@click.option("--follow", "-f", is_flag=True, help="Follow log output.")
+@click.option("--lines", "-n", default=50, help="Number of lines to show.")
+def tray_logs(follow: bool, lines: int) -> None:
+    """Show tray logs."""
+    from riva.tray.daemon import LOG_FILE
+
+    console = Console()
+    if not LOG_FILE.exists():
+        console.print("\n[dim]No log file found.[/dim]\n")
+        return
+
+    all_lines = LOG_FILE.read_text().splitlines()
+    for line in all_lines[-lines:]:
+        click.echo(line)
+
+    if follow:
+        import time
+
+        try:
+            with open(LOG_FILE) as fh:
+                fh.seek(0, 2)  # seek to end
+                while True:
+                    line = fh.readline()
+                    if line:
+                        click.echo(line, nl=False)
+                    else:
+                        time.sleep(0.3)
+        except KeyboardInterrupt:
+            pass
 
 
 @cli.command(name="init")

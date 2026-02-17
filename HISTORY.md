@@ -1,5 +1,18 @@
 # Release History
 
+## v0.3.2 (2026-02-16)
+
+### System Tray Daemon
+
+- **`riva tray` is now a command group** with `start`, `stop`, `status`, and `logs` subcommands — same pattern as `riva web`
+- **Background daemon mode** — `riva tray start` (default) forks the tray into a background process with PID tracking and log file at `~/.config/riva/tray.log`
+- **Foreground mode** — `riva tray start -f` runs the tray in the foreground (previous default behavior)
+- **`riva tray stop`** — sends SIGTERM with 5-second graceful shutdown, falls back to SIGKILL
+- **`riva tray status`** — shows running state and PID
+- **`riva tray logs`** — view tray logs with `--follow` (`-f`) and `--lines` (`-n`) options
+- New modules: `src/riva/tray/daemon.py` (PID file management, start/stop/status), `src/riva/tray/run.py` (daemon subprocess entry point)
+- 6 new tests covering daemon start, duplicate detection, stop/SIGTERM, status reporting, and edge cases
+
 ## v0.3.1 (2026-02-15)
 
 ### OpenTelemetry Exporter
