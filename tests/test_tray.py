@@ -1,8 +1,9 @@
-"""Tests for riva.tray.manager."""
+"""Tests for riva.tray.manager and riva.tray.daemon."""
 
 from __future__ import annotations
 
 import os
+import signal
 from unittest.mock import MagicMock, patch
 
 from riva.tray.manager import (
@@ -201,3 +202,125 @@ class TestStartTray:
             start_tray(version="0.2.3")
 
         mock_proc.terminate.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tray daemon tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrayDaemon:
+    def test_start_writes_pid(self, tmp_path):
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+            patch("riva.tray.daemon.subprocess.Popen", return_value=mock_proc),
+        ):
+            from riva.tray.daemon import start_tray_daemon
+
+            pid = start_tray_daemon("1.0.0", "127.0.0.1", 8585)
+
+        assert pid == 42
+        assert pid_file.read_text() == "42"
+
+    def test_start_raises_if_already_running(self, tmp_path):
+        import pytest
+
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+        pid_file.write_text("99")
+
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+            patch("riva.tray.daemon.is_running", return_value=True),
+        ):
+            from riva.tray.daemon import start_tray_daemon
+
+            with pytest.raises(RuntimeError, match="already running"):
+                start_tray_daemon("1.0.0", "127.0.0.1", 8585)
+
+    def test_stop_sends_sigterm(self, tmp_path):
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+        pid_file.write_text("99")
+
+        kill_calls: list[tuple[int, int]] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            kill_calls.append((pid, sig))
+
+        # is_running returns True first (for the guard), then False (process exited)
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+            patch("riva.tray.daemon.os.kill", side_effect=fake_kill),
+            patch("riva.tray.daemon.is_running", side_effect=[True, False]),
+            patch("riva.tray.daemon.time.sleep"),
+        ):
+            from riva.tray.daemon import stop_tray_daemon
+
+            result = stop_tray_daemon()
+
+        assert result is True
+        assert (99, signal.SIGTERM) in kill_calls
+        assert not pid_file.exists()
+
+    def test_stop_not_running(self, tmp_path):
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+        ):
+            from riva.tray.daemon import stop_tray_daemon
+
+            result = stop_tray_daemon()
+
+        assert result is False
+
+    def test_status_running(self, tmp_path):
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+        pid_file.write_text("99")
+
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+            patch("riva.tray.daemon.is_running", return_value=True),
+        ):
+            from riva.tray.daemon import tray_daemon_status
+
+            info = tray_daemon_status()
+
+        assert info["running"] is True
+        assert info["pid"] == 99
+        assert "tray.log" in info["log_file"]
+
+    def test_status_not_running(self, tmp_path):
+        pid_file = tmp_path / "tray.pid"
+        log_file = tmp_path / "tray.log"
+
+        with (
+            patch("riva.tray.daemon.PID_DIR", tmp_path),
+            patch("riva.tray.daemon.PID_FILE", pid_file),
+            patch("riva.tray.daemon.LOG_FILE", log_file),
+        ):
+            from riva.tray.daemon import tray_daemon_status
+
+            info = tray_daemon_status()
+
+        assert info["running"] is False
+        assert info["pid"] is None

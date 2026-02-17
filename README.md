@@ -177,12 +177,17 @@ riva watch
 
 ### `riva tray`
 
-Launch the native macOS system tray (menu bar app). Provides quick access to both the TUI and web dashboards, plus scan and audit actions.
+Native macOS system tray (menu bar app). Provides quick access to both the TUI and web dashboards, plus scan and audit actions.
 
 ```bash
-riva tray                      # Default (web on 127.0.0.1:8585)
-riva tray --port 9090          # Custom web port
-riva tray --host 0.0.0.0       # Custom web host
+riva tray                      # Start daemon (background)
+riva tray start                # Same as above
+riva tray start -f             # Foreground mode
+riva tray start --port 9090    # Custom web port
+riva tray stop                 # Stop the tray daemon
+riva tray status               # Show running state and PID
+riva tray logs                 # View tray logs
+riva tray logs -f              # Follow log output
 ```
 
 Requires Xcode Command Line Tools (`xcode-select --install`). The Swift binary is compiled on first launch and cached at `~/.cache/riva/tray-mac`.
@@ -461,6 +466,8 @@ src/riva/
 │   └── exporter.py      # Main coordinator
 ├── tray/                # System tray (macOS)
 │   ├── manager.py       # Swift binary compilation, spawn, IPC
+│   ├── daemon.py        # Background daemon management (PID, start/stop)
+│   ├── run.py           # Daemon subprocess entry point
 │   └── tray_mac.swift   # Native macOS NSStatusBar app
 ├── tui/                 # Terminal UI (Rich)
 │   ├── components.py    # Rich table builders
