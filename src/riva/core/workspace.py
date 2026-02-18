@@ -86,6 +86,9 @@ class WorkspaceConfig:
     audit_custom_checks: list[str] = field(default_factory=list)
     audit_disabled_checks: list[str] = field(default_factory=list)
 
+    # [boundary]
+    boundary_enabled: bool = False
+
     # [otel]
     otel_enabled: bool = False
     otel_endpoint: str = "http://localhost:4318"
@@ -130,6 +133,7 @@ def load_workspace_config(riva_dir: Path) -> WorkspaceConfig:
     hooks = merged.get("hooks", {})
     rules = merged.get("rules", {})
     audit = merged.get("audit", {})
+    boundary = merged.get("boundary", {})
     otel = merged.get("otel", {})
 
     root_dir = riva_dir.parent
@@ -147,6 +151,7 @@ def load_workspace_config(riva_dir: Path) -> WorkspaceConfig:
         rules_targets=list(rules.get("targets", [])),
         audit_custom_checks=list(audit.get("custom_checks", [])),
         audit_disabled_checks=list(audit.get("disabled_checks", [])),
+        boundary_enabled=bool(boundary.get("enabled", False)),
         otel_enabled=bool(otel.get("enabled", False)),
         otel_endpoint=str(otel.get("endpoint", "http://localhost:4318")),
         otel_protocol=str(otel.get("protocol", "http")),

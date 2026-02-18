@@ -212,10 +212,23 @@ def list_agents() -> None:
     console.print()
 
 
-@cli.command()
+@cli.group(invoke_without_command=True)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--network", "include_network", is_flag=True, help="Include network security checks.")
-def audit(as_json: bool, include_network: bool) -> None:
+@click.pass_context
+def audit(ctx: click.Context, as_json: bool, include_network: bool) -> None:
+    """Security audit and compliance commands."""
+    ctx.ensure_object(dict)
+    ctx.obj["as_json"] = as_json
+    ctx.obj["include_network"] = include_network
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(audit_run, as_json=as_json, include_network=include_network)
+
+
+@audit.command(name="run")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.option("--network", "include_network", is_flag=True, help="Include network security checks.")
+def audit_run(as_json: bool = False, include_network: bool = False) -> None:
     """Run a security audit and print a report."""
     from riva.core.audit import run_audit
     from riva.core.workspace import find_workspace
@@ -273,6 +286,115 @@ def audit(as_json: bool, include_network: bool) -> None:
         console.print()
         console.print(table)
         console.print()
+
+
+@audit.command(name="log")
+@click.option("--hours", default=24.0, type=float, help="Hours of history to show.")
+@click.option("--type", "event_type", default=None, help="Filter by event type.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def audit_log(hours: float, event_type: str | None, as_json: bool) -> None:
+    """Show recent entries from the tamper-evident audit log."""
+    from riva.core.audit_log import AuditLog
+
+    log = AuditLog()
+    entries = log.read_entries(hours=hours, event_type=event_type)
+
+    if as_json:
+        click.echo(json.dumps(entries, indent=2))
+    else:
+        console = Console()
+        if not entries:
+            console.print(f"\n[dim]No audit log entries in the last {hours} hour(s).[/dim]\n")
+            return
+
+        table = Table(
+            title=f"Audit Log ({len(entries)} entries, last {hours}h)",
+            expand=True,
+            title_style="bold cyan",
+            border_style="bright_blue",
+        )
+        table.add_column("Time", min_width=20)
+        table.add_column("Type", min_width=18)
+        table.add_column("Severity", min_width=10)
+        table.add_column("Agent", min_width=14)
+        table.add_column("Detail", min_width=40)
+
+        severity_style = {
+            "info": "dim",
+            "low": "blue",
+            "medium": "yellow",
+            "high": "bold red",
+            "critical": "bold red on white",
+        }
+        for entry in entries[-100:]:  # Show last 100
+            ts = entry.get("timestamp", "?")[:19]
+            etype = entry.get("event_type", "?")
+            sev = entry.get("severity", "info")
+            sev_style = severity_style.get(sev, "dim")
+            agent = entry.get("agent_name") or "—"
+            detail = entry.get("detail", "")
+            if len(detail) > 80:
+                detail = detail[:77] + "..."
+            table.add_row(
+                ts,
+                etype,
+                f"[{sev_style}]{sev}[/{sev_style}]",
+                agent,
+                detail,
+            )
+
+        console.print()
+        console.print(table)
+        if len(entries) > 100:
+            console.print(f"  [dim]Showing last 100 of {len(entries)} entries[/dim]")
+        console.print()
+
+
+@audit.command(name="verify")
+def audit_verify() -> None:
+    """Verify integrity of the tamper-evident audit log."""
+    from riva.core.audit_log import AuditLog
+
+    log = AuditLog()
+    console = Console()
+
+    valid, count, error = log.verify_integrity()
+
+    console.print()
+    if valid:
+        console.print(f"[bold green]Integrity OK[/bold green] — {count} entries verified, HMAC chain intact")
+    else:
+        console.print(f"[bold red]Integrity FAILED[/bold red] — {error}")
+        console.print(f"  Entries verified before failure: {count}")
+    console.print(f"  Log file: {log.log_file}")
+    console.print()
+
+
+@audit.command(name="export")
+@click.option("--format", "fmt", type=click.Choice(["jsonl", "cef"]), default="jsonl", help="Export format.")
+@click.option("--hours", default=24.0, type=float, help="Hours of history to export.")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
+def audit_export(fmt: str, hours: float, output: str | None) -> None:
+    """Export audit log for compliance (JSONL or CEF for SIEMs)."""
+    from riva.core.audit_log import AuditLog
+
+    log = AuditLog()
+    console = Console()
+
+    if output is None:
+        output = f"riva-audit-export.{fmt}" if fmt == "jsonl" else "riva-audit-export.cef"
+
+    output_path = Path(output)
+
+    if fmt == "cef":
+        count = log.export_cef(output_path, hours=hours)
+    else:
+        count = log.export_jsonl(output_path, hours=hours)
+
+    console.print(f"\n[bold green]Exported {count} entries[/bold green] → {output_path}")
+    console.print(f"  Format: {fmt.upper()}")
+    console.print(f"  Time range: last {hours} hours")
+    console.print()
 
 
 @cli.command()
