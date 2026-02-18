@@ -1,29 +1,116 @@
-/* RIVA Dashboard — Tab Router & Polling Orchestration */
+/* RIVA Dashboard — Sidebar Nav, Theme System & Polling Orchestration */
 
 (function() {
   var connected = true;
   var lastHistories = {};
   var currentTab = 'overview';
 
-  /* --- Tab Router --- */
+  /* --- Sidebar --- */
+  var sidebar = document.getElementById('sidebar');
+  var sidebarToggle = document.getElementById('sidebar-toggle');
+  var backdrop = document.getElementById('sidebar-backdrop');
+
+  function initSidebar() {
+    var collapsed = localStorage.getItem('riva-sidebar-collapsed') === 'true';
+    if (collapsed) sidebar.classList.add('collapsed');
+
+    sidebarToggle.addEventListener('click', function() {
+      var isMobile = window.innerWidth <= 900;
+      if (isMobile) {
+        sidebar.classList.toggle('mobile-open');
+        backdrop.classList.toggle('visible', sidebar.classList.contains('mobile-open'));
+      } else {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('riva-sidebar-collapsed', sidebar.classList.contains('collapsed'));
+      }
+    });
+
+    backdrop.addEventListener('click', function() {
+      sidebar.classList.remove('mobile-open');
+      backdrop.classList.remove('visible');
+    });
+  }
+
+  /* --- Tab/Nav Router --- */
   function initTabs() {
-    var buttons = document.querySelectorAll('.tab-btn');
-    buttons.forEach(function(btn) {
-      btn.addEventListener('click', function() {
+    var navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(function(item) {
+      item.addEventListener('click', function() {
         var target = this.dataset.tab;
         switchTab(target);
+        // Close mobile sidebar on nav click
+        if (window.innerWidth <= 900) {
+          sidebar.classList.remove('mobile-open');
+          backdrop.classList.remove('visible');
+        }
       });
     });
   }
 
   function switchTab(tabName) {
     currentTab = tabName;
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.dataset.tab === tabName);
+    document.querySelectorAll('.nav-item').forEach(function(item) {
+      item.classList.toggle('active', item.dataset.tab === tabName);
     });
     document.querySelectorAll('.tab-panel').forEach(function(panel) {
       panel.classList.toggle('active', panel.id === 'tab-' + tabName);
     });
+  }
+
+  /* --- Theme Management --- */
+  function initTheme() {
+    var saved = localStorage.getItem('riva-theme') || 'dark';
+    applyTheme(saved);
+
+    document.querySelectorAll('.theme-option').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var theme = this.dataset.themeValue;
+        applyTheme(theme);
+        localStorage.setItem('riva-theme', theme);
+      });
+    });
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+
+    // Update meta theme-color for browser chrome
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      if (theme === 'light') {
+        meta.content = '#f5f7fa';
+      } else if (theme === 'system') {
+        meta.content = window.matchMedia('(prefers-color-scheme: light)').matches ? '#f5f7fa' : '#0a0e14';
+      } else {
+        meta.content = '#0a0e14';
+      }
+    }
+
+    // Update active state on theme buttons
+    document.querySelectorAll('.theme-option').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.themeValue === theme);
+    });
+  }
+
+  /* --- Settings Panel --- */
+  function initSettings() {
+    var panel = document.getElementById('settings-panel');
+    var overlay = document.getElementById('settings-overlay');
+    var profile = document.getElementById('sidebar-profile');
+    var closeBtn = document.getElementById('settings-close');
+
+    function openSettings() {
+      panel.classList.add('open');
+      overlay.classList.add('open');
+    }
+    function closeSettings() {
+      panel.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+
+    profile.addEventListener('click', openSettings);
+    closeBtn.addEventListener('click', closeSettings);
+    overlay.addEventListener('click', closeSettings);
   }
 
   /* --- Connection Status --- */
@@ -184,7 +271,10 @@
   };
 
   /* --- Init --- */
+  initSidebar();
   initTabs();
+  initTheme();
+  initSettings();
   pollFast();
   pollSlow();
 

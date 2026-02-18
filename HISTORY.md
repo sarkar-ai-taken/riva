@@ -1,5 +1,31 @@
 # Release History
 
+## v0.3.4 (2026-02-17)
+
+### Left Sidebar Navigation
+
+- **Replaced horizontal tab nav** with a retractable left sidebar — vertical navigation with SVG icons for all 6 tabs (Overview, Network, Security, Usage, Config, Forensics)
+- **Collapsible sidebar** — toggle between expanded (220px) and collapsed (56px icon-only) modes; state persisted to `localStorage`
+- **Logo and branding** in sidebar header with gradient icon
+- **Settings / profile section** at sidebar bottom — opens a slide-in settings panel
+
+### Theme System
+
+- **Three theme modes**: Dark (default), Light, and System (follows OS `prefers-color-scheme`)
+- **Full light theme** — complete CSS variable overrides for all backgrounds, text colors, borders, shadows, and accent colors
+- Theme selection via settings panel with visual picker buttons; persisted to `localStorage`
+- `data-theme` attribute on `<html>` drives all theming via CSS custom properties
+
+### Mobile Responsive
+
+- Sidebar becomes a fixed overlay on screens below 900px with backdrop dismiss
+- Nav item clicks auto-close the mobile sidebar
+
+### Other
+
+- Synced `__version__` in `__init__.py` with `pyproject.toml` (was stuck at 0.1.0)
+- No server-side changes — all 42 `test_web.py` tests pass
+
 ## v0.3.3 (2026-02-17)
 
 ### Continuous Boundary Monitoring
