@@ -21,10 +21,20 @@ function renderDailyChart(daily, width, height) {
     var y = (height - (d.total_tokens / maxT) * (height - 4) - 2).toFixed(1);
     return x + ',' + y;
   }).join(' ');
+  var color = getColor('purple');
+  var firstX = '0';
+  var lastX = ((daily.length - 1) * step).toFixed(1);
+  var areaPoints = points + ' ' + lastX + ',' + height + ' ' + firstX + ',' + height;
+  var uid = 'daily-grad-' + (++_sparklineId);
   return '<div class="sparkline-container">' +
     '<div class="sparkline-label">Daily Tokens</div>' +
     '<svg class="sparkline" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
-    '<polyline fill="none" stroke="' + getColor('purple') + '" stroke-width="1.5" points="' + points + '"/>' +
+    '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.25"/>' +
+    '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/>' +
+    '</linearGradient></defs>' +
+    '<polygon fill="url(#' + uid + ')" points="' + areaPoints + '"/>' +
+    '<polyline fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="' + points + '"/>' +
     '</svg></div>';
 }
 
