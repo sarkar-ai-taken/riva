@@ -65,6 +65,8 @@ It **observes agent behavior** but does not execute agent actions.
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
 - **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics
 - **OpenTelemetry export** — `riva otel` pushes metrics, logs, and traces to any OTel-compatible backend (Datadog, Grafana, Jaeger) via OTLP
+- **Boundary monitoring** — continuous policy evaluation every poll cycle — flag violations for file access, network connections, process trees, and privilege
+- **Compliance audit log** — tamper-evident JSONL log with HMAC chain, CEF export for SIEMs, integrity verification via `riva audit verify`
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
 - **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, and forensic drill-in
@@ -232,11 +234,18 @@ riva config
 
 ### `riva audit`
 
-Run a security audit and print a report.
+Security audit and compliance commands.
 
 ```bash
-riva audit             # Rich table with PASS/WARN/FAIL
-riva audit --json      # JSON output
+riva audit                              # Run security audit (PASS/WARN/FAIL table)
+riva audit run --json                   # JSON output
+riva audit run --network                # Include network security checks
+riva audit log                          # Show recent audit log entries
+riva audit log --hours 48 --type boundary_violation  # Filter by time and type
+riva audit verify                       # Verify HMAC chain integrity
+riva audit export --format jsonl        # Export for compliance (default)
+riva audit export --format cef          # CEF format for SIEM (Splunk, QRadar)
+riva audit export --hours 72 -o report.cef  # Custom time range and output
 ```
 
 Checks performed:
@@ -304,6 +313,25 @@ Authorization = "Bearer <token>"
 ```
 
 Or via environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `RIVA_OTEL_ENABLED`.
+
+### Boundary Policies
+
+Configure continuous boundary monitoring via `.riva/config.toml`:
+
+```toml
+[boundary]
+enabled = true
+allowed_paths = []
+denied_paths = ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**"]
+allowed_domains = ["api.anthropic.com", "api.openai.com"]
+denied_domains = []
+max_child_processes = 50
+denied_process_names = ["nc", "ncat"]
+deny_root = true
+deny_unsandboxed = false
+```
+
+Boundaries are evaluated every poll cycle (default 2s). Violations fire the `BOUNDARY_VIOLATION` hook and are recorded in the tamper-evident audit log.
 
 ---
 
@@ -452,6 +480,8 @@ src/riva/
 │   └── autogen.py       # AutoGen detector
 ├── core/                # Core logic
 │   ├── audit.py         # Security audit checks
+│   ├── audit_log.py     # Tamper-evident JSONL audit log (HMAC chain)
+│   ├── boundary.py      # Continuous boundary policy engine
 │   ├── env_scanner.py   # Environment variable scanning
 │   ├── forensic.py      # Session forensics (timeline, patterns, decisions)
 │   ├── monitor.py       # Resource monitoring (CPU, memory)

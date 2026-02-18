@@ -27,6 +27,17 @@ targets = []
 custom_checks = []
 disabled_checks = []
 
+# [boundary]
+# enabled = true
+# allowed_paths = []
+# denied_paths = ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**"]
+# allowed_domains = []
+# denied_domains = []
+# max_child_processes = 50
+# denied_process_names = []
+# deny_root = true
+# deny_unsandboxed = false
+
 # [otel]
 # enabled = true
 # endpoint = "http://localhost:4318"

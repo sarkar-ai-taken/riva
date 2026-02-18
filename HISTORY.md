@@ -1,5 +1,43 @@
 # Release History
 
+## v0.3.3 (2026-02-17)
+
+### Continuous Boundary Monitoring
+
+- New **boundary policy engine** (`core/boundary.py`) — define allowed/denied boundaries for file access, network connections, process trees, and privilege
+- **Configurable via `[boundary]` section** in `.riva/config.toml`:
+  - `allowed_paths` / `denied_paths` — glob patterns for file access boundaries
+  - `allowed_domains` / `denied_domains` — network connection boundaries
+  - `max_child_processes` — per-agent child process limit
+  - `denied_process_names` — block specific child processes (e.g. `nc`, `curl`)
+  - `deny_root` — flag agents running as UID 0
+  - `deny_unsandboxed` — flag agents running without container/sandbox
+- **Evaluated every poll cycle** (default 2s) — violations are detected in near-real-time
+- **`BOUNDARY_VIOLATION` hook event** — fire custom scripts on policy violations
+- Violations logged to audit log and SQLite storage
+
+### Tamper-Evident Compliance Audit Log
+
+- New **append-only JSONL audit log** (`core/audit_log.py`) at `~/.config/riva/audit.jsonl`
+- **HMAC-SHA256 hash chain** — each entry includes the hash of the previous entry, making unauthorized modifications detectable
+- **Automatic lifecycle recording** — agent detected/stopped events are logged with timestamps and PIDs
+- **Boundary violations** automatically recorded with agent name, violation type, and severity
+- **`riva audit log`** — view recent audit log entries with filtering by event type and time range
+- **`riva audit verify`** — verify integrity of the HMAC chain (detects tampering or corruption)
+- **`riva audit export`** — export audit log for compliance:
+  - `--format jsonl` — structured JSONL (default)
+  - `--format cef` — Common Event Format for SIEM integration (Splunk, QRadar, ArcSight)
+  - `--hours` — time range filter
+  - `--output` — custom output path
+- Chain resumes correctly across process restarts
+
+### CLI
+
+- **`riva audit` is now a command group** with `run`, `log`, `verify`, `export` subcommands
+- `riva audit` (bare) still runs the security audit (backward compatible)
+- 22 new boundary tests covering file, network, process, and privilege policies
+- 17 new audit log tests covering append, HMAC chain, tamper detection, persistence, JSONL/CEF export
+
 ## v0.3.2 (2026-02-16)
 
 ### System Tray Daemon

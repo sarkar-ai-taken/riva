@@ -24,6 +24,7 @@ class HookEvent(enum.Enum):
     SCAN_COMPLETE = "scan_complete"
     AUDIT_FINDING = "audit_finding"
     WORKSPACE_LOADED = "workspace_loaded"
+    BOUNDARY_VIOLATION = "boundary_violation"
 
 
 @dataclass

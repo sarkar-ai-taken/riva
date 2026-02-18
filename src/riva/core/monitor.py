@@ -96,6 +96,23 @@ class ResourceMonitor:
             except Exception:
                 pass
 
+        # Boundary policy engine
+        self._boundary_policy = None
+        self._audit_log = None
+        if workspace_config is not None:
+            try:
+                from riva.core.boundary import load_boundary_policy
+
+                self._boundary_policy = load_boundary_policy(workspace_config)
+            except Exception:
+                pass
+            try:
+                from riva.core.audit_log import AuditLog
+
+                self._audit_log = AuditLog()
+            except Exception:
+                pass
+
         # Child process tree collector
         self._tree_collector: Any | None = None
         try:
@@ -261,6 +278,17 @@ class ResourceMonitor:
         # Emit lifecycle events and fire hooks
         self._emit_lifecycle_events(refreshed)
 
+        # Evaluate boundary policies
+        if self._boundary_policy is not None:
+            try:
+                from riva.core.boundary import evaluate_boundaries
+
+                violations = evaluate_boundaries(self._boundary_policy, refreshed)
+                if violations:
+                    self._handle_boundary_violations(violations, refreshed)
+            except Exception:
+                pass
+
         # Persist to storage if available
         if self._storage is not None:
             try:
@@ -333,6 +361,28 @@ class ResourceMonitor:
                 running_count=len(current_pids),
             )
 
+        # Log lifecycle events to audit log
+        if self._audit_log:
+            try:
+                for inst in instances:
+                    if inst.pid in new_pids:
+                        self._audit_log.append(
+                            event_type="agent_lifecycle",
+                            detail=f"Agent detected: {inst.name} (PID {inst.pid})",
+                            severity="info",
+                            agent_name=inst.name,
+                            metadata={"pid": inst.pid, "action": "detected"},
+                        )
+                for pid in gone_pids:
+                    self._audit_log.append(
+                        event_type="agent_lifecycle",
+                        detail=f"Agent stopped (PID {pid})",
+                        severity="info",
+                        metadata={"pid": pid, "action": "stopped"},
+                    )
+            except Exception:
+                pass
+
         # Push lifecycle events to OTel exporter
         if self._otel_exporter is not None:
             try:
@@ -396,6 +446,70 @@ class ResourceMonitor:
 
         t = threading.Thread(target=_run_hooks, daemon=True)
         t.start()
+
+    def _handle_boundary_violations(
+        self,
+        violations: list,
+        instances: list[AgentInstance],
+    ) -> None:
+        """Log boundary violations to audit log and fire hooks."""
+        for v in violations:
+            # Write to audit log
+            if self._audit_log:
+                try:
+                    self._audit_log.append(
+                        event_type="boundary_violation",
+                        detail=v.detail,
+                        severity=v.severity,
+                        agent_name=v.agent_name,
+                        metadata={"violation_type": v.violation_type},
+                    )
+                except Exception:
+                    pass
+
+            # Persist to storage
+            if self._storage:
+                try:
+                    self._storage.record_audit_event(
+                        check_name=f"boundary:{v.violation_type}",
+                        status="fail",
+                        detail=v.detail,
+                        severity=v.severity,
+                    )
+                except Exception:
+                    pass
+
+            # Emit event
+            if self._emitter:
+                self._emitter.emit(
+                    "boundary_violation",
+                    agent_name=v.agent_name,
+                    violation_type=v.violation_type,
+                    detail=v.detail,
+                    severity=v.severity,
+                )
+
+        # Fire hooks async
+        if self._hook_runner and self._workspace_config:
+            import time as _time
+
+            from riva.core.hooks import HookContext, HookEvent
+
+            wc = self._workspace_config
+
+            def _run_hooks():
+                ctx = HookContext(
+                    event="boundary_violation",
+                    timestamp=_time.time(),
+                    workspace_root=str(wc.root_dir),
+                    extras={
+                        "violations": [v.to_dict() for v in violations],
+                    },
+                )
+                self._hook_runner.execute(HookEvent.BOUNDARY_VIOLATION, ctx)
+
+            t = threading.Thread(target=_run_hooks, daemon=True)
+            t.start()
 
     def _run(self) -> None:
         """Background thread loop."""
