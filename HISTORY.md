@@ -1,5 +1,13 @@
 # Release History
 
+## v0.3.6 (2026-02-22)
+
+### OTel as Core Dependency
+
+- **Moved OpenTelemetry from optional extra to core dependency** — `pip install riva` now includes `opentelemetry-api`, `opentelemetry-sdk`, and `opentelemetry-exporter-otlp-proto-http` out of the box
+- No longer need `pip install riva[otel]` — OTel support works immediately after install
+- Removed the `[otel]` optional-dependencies group from `pyproject.toml`
+
 ## v0.3.5 (2026-02-22)
 
 ### OTel Metrics Fix — Cumulative Temporality for Prometheus

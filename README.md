@@ -135,12 +135,6 @@ pip install riva
 curl -fsSL https://raw.githubusercontent.com/sarkar-ai-taken/riva/main/install.sh | bash
 ```
 
-### Install with OpenTelemetry support
-
-```bash
-pip install riva[otel]
-```
-
 ### Install from source
 
 ```bash
@@ -285,7 +279,7 @@ Session identifiers: `latest`, a session slug (e.g. `witty-shimmying-haven`), a 
 
 OpenTelemetry export — push metrics, logs, and traces to any OTel-compatible backend.
 
-Requires the optional `otel` extra: `pip install riva[otel]`
+OpenTelemetry is included with `pip install riva` — no extra install needed.
 
 ```bash
 riva otel status                            # Show SDK availability and config
@@ -324,8 +318,8 @@ Riva exports all three OTel signals — **metrics**, **logs**, and **traces** �
 # 1. Start the all-in-one Grafana stack (Loki + Grafana + Tempo + Mimir)
 docker run -d --name otel-lgtm -p 4318:4318 -p 3000:3000 grafana/otel-lgtm
 
-# 2. Install Riva with OTel support
-pip install 'riva[otel]'
+# 2. Install Riva (OTel support included)
+pip install riva
 
 # 3. Initialize workspace config (if not already done)
 riva init
@@ -564,7 +558,7 @@ src/riva/
 │   ├── sandbox.py       # Sandbox / container detection
 │   ├── scanner.py       # Process scanning
 │   └── usage_stats.py   # Token/tool usage parsing
-├── otel/                # OpenTelemetry exporter (optional)
+├── otel/                # OpenTelemetry exporter
 │   ├── config.py        # OTel configuration loading
 │   ├── metrics.py       # Metrics exporter (gauges, counters)
 │   ├── logs.py          # Logs exporter (audit, lifecycle)
