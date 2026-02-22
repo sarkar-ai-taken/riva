@@ -1,5 +1,31 @@
 # Release History
 
+## v0.3.5 (2026-02-22)
+
+### OTel Metrics Fix — Cumulative Temporality for Prometheus
+
+- **Fixed counter metrics not appearing in Prometheus/Grafana** — the OTel Python SDK defaults to delta temporality for counters via OTLP, but Prometheus requires cumulative temporality; configured `OTLPMetricExporter` with explicit `preferred_temporality` for all instrument types
+- **Fixed one-shot scan metric export** — `riva scan --otel` now waits for one periodic collection cycle before shutdown, ensuring observable gauge callbacks fire and counter data is flushed
+- **All 4 counter metrics now export correctly**: `riva.scan.total`, `riva.agent.detected_total`, `riva.agent.stopped_total`, `riva.audit.finding_total`
+- **All 8 observable gauges confirmed working**: CPU %, memory, uptime, connections, child count, tree CPU, tree memory, running count
+
+### Grafana Dashboard
+
+- **Bundled Grafana dashboard** (`grafana-dashboard.json`) — 12-panel monitoring dashboard for the `grafana/otel-lgtm` stack:
+  - **Stat panels**: Running Agents, Total Scans, Agents Detected, Child Processes
+  - **Time series**: Agent CPU %, Memory, Uptime, Network Connections, Process Tree CPU/Memory
+  - **Logs panel**: Agent lifecycle events via Loki (detected/stopped with PIDs and timestamps)
+  - **Traces table**: Forensic session traces via Tempo with session names and durations
+- Import via Grafana UI or `curl -X POST http://localhost:3000/api/dashboards/db -d @grafana-dashboard.json`
+
+### OTel Documentation
+
+- Comprehensive OTel setup guide in README covering all three signals (metrics, logs, traces)
+- Quick-start with `grafana/otel-lgtm` all-in-one container
+- Configuration reference for `[otel]` section in `.riva/config.toml`
+- Metric name mapping table (OTel → Prometheus naming convention)
+- Environment variable overrides (`OTEL_EXPORTER_OTLP_ENDPOINT`, `RIVA_OTEL_ENABLED`, etc.)
+
 ## v0.3.4 (2026-02-17)
 
 ### Left Sidebar Navigation

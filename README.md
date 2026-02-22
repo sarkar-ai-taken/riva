@@ -314,6 +314,82 @@ Authorization = "Bearer <token>"
 
 Or via environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `RIVA_OTEL_ENABLED`.
 
+### OpenTelemetry Observability
+
+Riva exports all three OTel signals — **metrics**, **logs**, and **traces** — to any OTLP-compatible backend.
+
+#### Quick Start with Grafana LGTM
+
+```bash
+# 1. Start the all-in-one Grafana stack (Loki + Grafana + Tempo + Mimir)
+docker run -d --name otel-lgtm -p 4318:4318 -p 3000:3000 grafana/otel-lgtm
+
+# 2. Install Riva with OTel support
+pip install 'riva[otel]'
+
+# 3. Initialize workspace config (if not already done)
+riva init
+
+# 4. Enable OTel in .riva/config.toml
+# [otel]
+# enabled = true
+# endpoint = "http://localhost:4318"
+# metrics = true
+# logs = true
+# traces = true
+
+# 5. Run a scan — metrics and logs are exported automatically
+riva scan --otel
+
+# 6. Export forensic session traces
+riva otel export-sessions --limit 10
+
+# 7. Import the bundled Grafana dashboard
+curl -s -X POST http://localhost:3000/api/dashboards/db \
+  -H 'Content-Type: application/json' \
+  -u admin:admin \
+  -d "{\"dashboard\": $(cat grafana-dashboard.json), \"overwrite\": true}"
+
+# 8. Open Grafana at http://localhost:3000 (admin/admin)
+```
+
+#### Signals
+
+| Signal | What it exports | Backend |
+|--------|----------------|---------|
+| **Metrics** | 8 observable gauges (CPU, memory, uptime, connections, child count, tree CPU, tree memory, running count) + 4 counters (scans, detected, stopped, audit findings) | Prometheus, Mimir, Datadog |
+| **Logs** | Agent lifecycle events (detected/stopped) and audit findings with severity, category, and agent attributes | Loki, Elasticsearch, Datadog |
+| **Traces** | Forensic sessions as span trees — session root → turn children → action grandchildren with tool names and durations | Tempo, Jaeger, Datadog |
+
+#### Metric Names (OTel → Prometheus)
+
+| OTel Name | Prometheus Name | Type | Labels |
+|-----------|----------------|------|--------|
+| `riva.agents.running_count` | `riva_agents_running_count` | Gauge | — |
+| `riva.agent.cpu_percent` | `riva_agent_cpu_percent` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.memory_mb` | `riva_agent_memory_mb_mebibytes` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.uptime_seconds` | `riva_agent_uptime_seconds` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.connection_count` | `riva_agent_connection_count` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.child_count` | `riva_agent_child_count` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.tree_cpu_percent` | `riva_agent_tree_cpu_percent` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.agent.tree_memory_mb` | `riva_agent_tree_memory_mb_mebibytes` | Gauge | `riva_agent_name`, `process_pid` |
+| `riva.scan.total` | `riva_scan_total` | Counter | — |
+| `riva.agent.detected_total` | `riva_agent_detected_total` | Counter | `riva_agent_name` |
+| `riva.agent.stopped_total` | `riva_agent_stopped_total` | Counter | `riva_agent_name` |
+| `riva.audit.finding_total` | `riva_audit_finding_total` | Counter | `riva_audit_check`, `riva_audit_status`, `riva_audit_severity`, `riva_audit_category` |
+
+#### Grafana Dashboard
+
+A pre-built Grafana dashboard is included at `grafana-dashboard.json`. It provides 12 panels covering all three signals — stat panels, time series, log viewer, and trace table.
+
+#### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RIVA_OTEL_ENABLED` | Enable/disable OTel export | `false` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint | `http://localhost:4318` |
+| `OTEL_SERVICE_NAME` | Service name in OTel resource | `riva` |
+
 ### Boundary Policies
 
 Configure continuous boundary monitoring via `.riva/config.toml`:

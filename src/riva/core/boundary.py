@@ -267,9 +267,7 @@ def evaluate_boundaries(
         # Network boundary checks
         network_data = inst.extra.get("network", [])
         if network_data and (policy.allowed_domains or policy.denied_domains):
-            violations.extend(
-                evaluate_network_boundaries(policy, inst.name, network_data)
-            )
+            violations.extend(evaluate_network_boundaries(policy, inst.name, network_data))
 
         # Process boundary checks
         tree_data = inst.extra.get("process_tree", {})
@@ -293,15 +291,17 @@ def evaluate_boundaries(
 
         violations.extend(
             evaluate_process_boundaries(
-                policy, inst.name, child_count, children,
-                is_root=is_root, is_sandboxed=is_sandboxed,
+                policy,
+                inst.name,
+                child_count,
+                children,
+                is_root=is_root,
+                is_sandboxed=is_sandboxed,
             )
         )
 
         # File boundary checks (from forensic data if available)
         if forensic_files and inst.name in forensic_files:
-            violations.extend(
-                evaluate_file_boundaries(policy, inst.name, forensic_files[inst.name])
-            )
+            violations.extend(evaluate_file_boundaries(policy, inst.name, forensic_files[inst.name]))
 
     return violations

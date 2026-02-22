@@ -118,7 +118,17 @@ class AuditLog:
 
         self._prev_hash = entry_hash
 
-        return AuditLogEntry(**entry_data)
+        return AuditLogEntry(
+            timestamp=now,
+            event_id=event_id,
+            event_type=event_type,
+            agent_name=agent_name,
+            detail=detail,
+            severity=severity,
+            metadata=metadata or {},
+            prev_hash=entry_data["prev_hash"],
+            entry_hash=entry_hash,
+        )
 
     def verify_integrity(self) -> tuple[bool, int, str]:
         """Verify the HMAC chain of the entire audit log.
@@ -148,17 +158,19 @@ class AuditLog:
                     stored_prev = entry.get("prev_hash", "")
 
                     if stored_prev != prev_hash:
-                        return False, count, (
-                            f"Line {line_num}: chain break — "
-                            f"expected prev_hash={prev_hash[:16]}..., "
-                            f"got {stored_prev[:16]}..."
+                        return (
+                            False,
+                            count,
+                            (
+                                f"Line {line_num}: chain break — "
+                                f"expected prev_hash={prev_hash[:16]}..., "
+                                f"got {stored_prev[:16]}..."
+                            ),
                         )
 
                     computed = self._compute_hash(entry, prev_hash)
                     if computed != stored_hash:
-                        return False, count, (
-                            f"Line {line_num}: hash mismatch — entry may have been tampered"
-                        )
+                        return False, count, (f"Line {line_num}: hash mismatch — entry may have been tampered")
 
                     prev_hash = stored_hash
                     count += 1
@@ -249,16 +261,9 @@ class AuditLog:
                 timestamp = entry.get("timestamp", "")
                 event_id = entry.get("event_id", "")
 
-                extensions = (
-                    f"rt={timestamp} "
-                    f"dvchost=localhost "
-                    f"cs1={agent} cs1Label=agentName "
-                    f"externalId={event_id}"
-                )
+                extensions = f"rt={timestamp} dvchost=localhost cs1={agent} cs1Label=agentName externalId={event_id}"
 
-                cef_line = (
-                    f"CEF:0|Riva|AgentMonitor|1.0|{event_type}|{detail}|{sev_num}|{extensions}"
-                )
+                cef_line = f"CEF:0|Riva|AgentMonitor|1.0|{event_type}|{detail}|{sev_num}|{extensions}"
                 fh.write(cef_line + "\n")
 
         return len(entries)

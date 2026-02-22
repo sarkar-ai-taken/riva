@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 from riva.core.boundary import (
     BoundaryPolicy,
@@ -76,9 +77,7 @@ class TestFileBoundaries:
 
     def test_multiple_files(self):
         policy = BoundaryPolicy(denied_paths=["/etc/*", "/root/*"])
-        violations = evaluate_file_boundaries(
-            policy, "TestAgent", ["/etc/passwd", "/home/ok.txt", "/root/.bashrc"]
-        )
+        violations = evaluate_file_boundaries(policy, "TestAgent", ["/etc/passwd", "/home/ok.txt", "/root/.bashrc"])
         assert len(violations) == 2
 
 
@@ -116,42 +115,32 @@ class TestNetworkBoundaries:
 class TestProcessBoundaries:
     def test_root_flagged(self):
         policy = BoundaryPolicy(deny_root=True)
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 0, [], is_root=True
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 0, [], is_root=True)
         assert len(violations) == 1
         assert violations[0].severity == "critical"
         assert violations[0].violation_type == "privilege"
 
     def test_unsandboxed_flagged(self):
         policy = BoundaryPolicy(deny_unsandboxed=True)
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 0, [], is_sandboxed=False
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 0, [], is_sandboxed=False)
         assert len(violations) == 1
         assert violations[0].violation_type == "privilege"
 
     def test_sandboxed_ok(self):
         policy = BoundaryPolicy(deny_unsandboxed=True)
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 0, [], is_sandboxed=True
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 0, [], is_sandboxed=True)
         assert len(violations) == 0
 
     def test_child_count_exceeded(self):
         policy = BoundaryPolicy(max_child_processes=5)
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 10, []
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 10, [])
         assert len(violations) == 1
         assert violations[0].violation_type == "process_boundary"
         assert "10" in violations[0].detail and "5" in violations[0].detail
 
     def test_child_count_within_limit(self):
         policy = BoundaryPolicy(max_child_processes=10)
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 5, []
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 5, [])
         assert len(violations) == 0
 
     def test_denied_process_name(self):
@@ -160,9 +149,7 @@ class TestProcessBoundaries:
             {"name": "node", "exe": "/usr/bin/node", "pid": 100},
             {"name": "nc", "exe": "/usr/bin/nc", "pid": 101},
         ]
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 2, children
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 2, children)
         assert len(violations) == 1
         assert "nc" in violations[0].detail
 
@@ -177,9 +164,7 @@ class TestProcessBoundaries:
             {"name": "nc", "exe": "/usr/bin/nc", "pid": 101},
             {"name": "python", "exe": "/usr/bin/python", "pid": 102},
         ]
-        violations = evaluate_process_boundaries(
-            policy, "TestAgent", 3, children, is_root=True
-        )
+        violations = evaluate_process_boundaries(policy, "TestAgent", 3, children, is_root=True)
         # root + child count exceeded + denied process
         assert len(violations) == 3
 
@@ -208,13 +193,12 @@ class TestEvaluateBoundaries:
 
     def test_network_violation(self):
         policy = BoundaryPolicy(denied_domains=["evil.com"])
-        inst = self._make_instance(
-            network=[{"hostname": "evil.com", "remote_addr": "1.2.3.4"}]
-        )
+        inst = self._make_instance(network=[{"hostname": "evil.com", "remote_addr": "1.2.3.4"}])
         violations = evaluate_boundaries(policy, [inst])
         assert any(v.violation_type == "network_boundary" for v in violations)
 
-    def test_no_violations(self):
+    @patch("psutil.Process", side_effect=Exception("mocked"))
+    def test_no_violations(self, mock_proc):
         policy = BoundaryPolicy()
         inst = self._make_instance()
         violations = evaluate_boundaries(policy, [inst])
