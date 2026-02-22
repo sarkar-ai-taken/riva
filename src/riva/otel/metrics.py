@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING
 
 from opentelemetry.metrics import CallbackOptions, Observation
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import (
+    AggregationTemporality,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.resources import Resource
 
 if TYPE_CHECKING:
@@ -24,6 +27,14 @@ class MetricsExporter:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
             OTLPMetricExporter,
         )
+        from opentelemetry.sdk.metrics._internal.instrument import (
+            Counter,
+            Histogram,
+            ObservableCounter,
+            ObservableGauge,
+            ObservableUpDownCounter,
+            UpDownCounter,
+        )
 
         resource = Resource.create(
             {
@@ -36,8 +47,21 @@ class MetricsExporter:
         exporter = OTLPMetricExporter(
             endpoint=f"{config.endpoint}/v1/metrics",
             headers=config.headers or {},
+            preferred_temporality={
+                Counter: AggregationTemporality.CUMULATIVE,
+                UpDownCounter: AggregationTemporality.CUMULATIVE,
+                Histogram: AggregationTemporality.CUMULATIVE,
+                ObservableCounter: AggregationTemporality.CUMULATIVE,
+                ObservableUpDownCounter: AggregationTemporality.CUMULATIVE,
+                ObservableGauge: AggregationTemporality.CUMULATIVE,
+            },
         )
-        reader = PeriodicExportingMetricReader(exporter, export_interval_millis=int(config.export_interval * 1000))
+        reader = PeriodicExportingMetricReader(
+            exporter,
+            export_interval_millis=int(config.export_interval * 1000),
+        )
+        self._reader = reader
+        self._export_interval = config.export_interval
         self._meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
         meter = self._meter_provider.get_meter("riva", self._get_version())
 
@@ -143,6 +167,12 @@ class MetricsExporter:
         )
 
     def shutdown(self) -> None:
+        import time
+
+        # Wait for at least one periodic collection cycle so observable gauge
+        # callbacks fire with the latest snapshot before we tear down.
+        interval_s = self._export_interval
+        time.sleep(interval_s + 0.5)
         self._meter_provider.shutdown()
 
     # --- Gauge callbacks ---

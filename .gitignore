@@ -46,3 +46,4 @@ Thumbs.db
 # uv
 uv.lock
 .riva/
+src/riva/*.ini
