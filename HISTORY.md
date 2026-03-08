@@ -1,5 +1,11 @@
 # Release History
 
+## v0.3.8 (2026-03-07)
+
+### Bug Fix
+
+- **Fixed invisible tray icon** — the v0.3.7 PNG was rendered with near-zero alpha values (7–185) on solid pixels due to cairosvg anti-aliasing, making the icon invisible in the macOS menu bar. Re-rendered at 2× resolution with alpha threshold (>30 → 255, else → 0) so the shield icon now displays correctly in both light and dark menu bars.
+
 ## v0.3.7 (2026-03-07)
 
 ### Branding & Tray Icon
