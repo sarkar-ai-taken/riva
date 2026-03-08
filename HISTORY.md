@@ -1,5 +1,13 @@
 # Release History
 
+## v0.3.7 (2026-03-07)
+
+### Branding & Tray Icon
+
+- **New logo** — vector SVG logo (shield + curious kid with magnifying glass) with transparent background; exports in SVG, PNG, JPEG, and ICO formats
+- **macOS tray icon** — replaced placeholder `"RI"` text with a proper monochrome template icon (shield silhouette with magnifying glass cut-out); auto-inverts for dark/light menu bar via `isTemplate = true`
+- **README logo** — project logo now displayed at the top of the README
+
 ## v0.3.6 (2026-02-22)
 
 ### OTel as Core Dependency

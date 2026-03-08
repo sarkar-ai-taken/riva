@@ -1,4 +1,8 @@
-# 🧐 rivA
+<p align="center">
+  <img src="assets/rivA_logo_transparent.png" alt="Riva" width="180"/>
+</p>
+
+## AI Command Center
 
 Observe, monitor, and control local AI agents running on your machine.
 
