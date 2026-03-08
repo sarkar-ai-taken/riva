@@ -175,12 +175,10 @@ body {
 }
 
 .sidebar-logo-icon {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
-  box-shadow: 0 2px 8px rgba(77,164,255,0.3);
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  object-fit: contain;
 }
 
 .sidebar-logo-text {
