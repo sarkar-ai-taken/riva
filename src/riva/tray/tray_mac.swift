@@ -73,8 +73,18 @@ class TrayDelegate: NSObject, NSApplicationDelegate {
     var statusTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "RI"
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Tray icon: shield + magnifying glass, embedded as base64 PNG @2x
+        let trayIconB64 = "iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAABmJLR0QA/wD/AP+gvaeTAAACLUlEQVRYhe3WT29MURjH8c+U0b4AUUSS1USE8AJYabonYdk0Qdp4I6wkYmcvsRAvgAURFrQ2qlFWKNHOIGJj1aZjce5Nr9s7c//MnXbjlzyLe+5znnzPc57znMN/ldcw5vAYa+jUaJtRzEeYxb48mHEs1wzRy5Yw1isz73YQJra33TI1twswsV2NIYYSQJe6pW4HdDlrsGX3MvQthmgkgDawp++1VtMGmvwL1Ck4uY2n+BJ9j2ESB/qEaqQH8tK6hmnszQjWxIz+tn2bejm/wcECqzyMxUEDrRWESUK1Bwk0XQIm1pVBAbVk10yemvheBWgoHSmlJ8KRLKt14SSWVh7QpypBI32sMikPaFtvGLTygMb7iD3Rx1yEx1OdRf0jI143y6zT312cZyoAXSsB08GvrCBLXZxbQrMrqhFMKdccF7MC3c+ZUARq2FZdnlL8bruXFex6zqS20IGbGXObwjZNpcZPYLUA0Gw8IXmsDwlPirwi/ik0vc/R9zjOY7/QnSeFt3ms40KDPdIl3kb0r53182GB1eRZS8hMUhNY6eL/oMfinYmI+4VajTKT1DH8Sfmt43QvILhdA1AHX201xwbuZvjcyoMhHNuFmqBWosxkwbwSTmUhjeJDTVDpbergvQpv8FHM1wSVtJdVYGKN4I7se66sbQr1WXibeukcXvcBs4CzdYAk1cBFvCgB8hwX7MC76iRuCsWZhljGjcintOogPypcHR08s3WlVNJfdd8t+TWCgioAAAAASUVORK5CYII="
+        if let data = Data(base64Encoded: trayIconB64),
+           let icon = NSImage(data: data) {
+            icon.isTemplate = true
+            icon.size = NSSize(width: 18, height: 18)
+            statusItem.button?.image = icon
+            statusItem.button?.imageScaling = .scaleProportionallyDown
+        } else {
+            statusItem.button?.title = "RI"
+        }
 
         let menu = NSMenu()
 

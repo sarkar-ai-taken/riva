@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <!--
+    Riva macOS menu bar template icon — 36×36px (@2x Retina, displays at 18pt)
+    All shapes use fill-rule="evenodd" so overlapping sub-paths become
+    transparent holes — giving a solid black shield with a magnifying glass
+    (circle + handle slot) cut through it.
+    Set isTemplate=true in Swift so macOS auto-inverts for dark/light menu bar.
+  -->
+  <path fill="black" fill-rule="evenodd" d="
+    M9 2 L27 2 Q34 2 34 9 L34 19
+    C34 28.5 27 33.5 18 35.5
+    C9 33.5 2 28.5 2 19 L2 9
+    Q2 2 9 2 Z
+
+    M15 17 m-7.5 0
+    a7.5 7.5 0 1 0 15 0
+    a7.5 7.5 0 1 0 -15 0
+
+    M19.1 23.5 L21.5 21.1 L27.2 26.7 L24.7 29.2 Z
+  "/>
+</svg>

@@ -1,0 +1,38 @@
+[workspace]
+name = "riva"
+scan_interval = 2.0
+
+[agents]
+enabled = []
+disabled = []
+
+[hooks]
+enabled = true
+timeout = 30
+
+[rules]
+injection_mode = "manual"   # manual | on_detect | disabled
+targets = []
+
+[audit]
+custom_checks = []
+disabled_checks = []
+
+# [otel]
+# enabled = true
+# endpoint = "http://localhost:4318"
+# protocol = "http"
+# service_name = "riva"
+# export_interval = 5.0
+# metrics = true
+# logs = true
+# traces = false
+# [otel.headers]
+# Authorization = "Bearer <token>"
+
+[otel]
+enabled = true
+endpoint = "http://localhost:4318"
+metrics = true
+logs = true
+traces = true
