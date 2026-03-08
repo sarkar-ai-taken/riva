@@ -1,5 +1,16 @@
 # Release History
 
+## v0.3.10 (2026-03-08)
+
+### Web Dashboard
+
+- **Riva logo in favicon and sidebar** — replaced placeholder gradient "R" with the Riva logo mark in the browser tab and sidebar header
+- **Grafana dashboard title** updated to "RIVA — AI Agent Command Center"
+
+### CI Fixes
+
+- Fixed ruff F401 unused `import time` in `tests/test_boundary.py` and `src/riva/tui/dashboard.py`
+
 ## v0.3.9 (2026-03-08)
 
 ### Riva Hub — Community Telemetry
