@@ -11,9 +11,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -126,7 +125,7 @@ class AuditLog:
             detail=detail,
             severity=severity,
             metadata=metadata or {},
-            prev_hash=entry_data["prev_hash"],
+            prev_hash=str(entry_data["prev_hash"]),
             entry_hash=entry_hash,
         )
 

@@ -164,9 +164,11 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
 
     # One-shot hub ping after first scan cycle
     import time as _time
+
     _time.sleep(1)  # let first scan complete
     try:
         from riva.hub.client import ping_hub
+
         ping_hub(monitor.instances)
     except Exception:
         pass
