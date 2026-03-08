@@ -163,9 +163,9 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
     monitor.start()
 
     # One-shot hub ping after first scan cycle
-    import time as _time
+    import time
 
-    _time.sleep(1)  # let first scan complete
+    time.sleep(1)  # let first scan complete
     try:
         from riva.hub.client import ping_hub
 
@@ -182,8 +182,6 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
         ) as live:
             while True:
                 live.update(_build_layout(monitor))
-                import time
-
                 time.sleep(1)
     except KeyboardInterrupt:
         pass
