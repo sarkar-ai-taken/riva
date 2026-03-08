@@ -33,7 +33,7 @@ def _get_version() -> str:
 @click.option("--version", is_flag=True, help="Show version and exit.")
 @click.pass_context
 def cli(ctx: click.Context, version: bool) -> None:
-    """Riva - AI Agent Task Manager.
+    """Riva - AI Agent Command Center.
 
     Discover and monitor AI coding agents running on your machine.
     """
