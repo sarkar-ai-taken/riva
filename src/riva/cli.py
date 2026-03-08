@@ -48,6 +48,10 @@ def cli(ctx: click.Context, version: bool) -> None:
 @cli.command()
 def watch() -> None:
     """Launch the live TUI dashboard."""
+    from riva.hub.consent import maybe_prompt_consent
+
+    maybe_prompt_consent()
+
     from riva.tui.dashboard import run_dashboard
 
     run_dashboard()
@@ -59,6 +63,11 @@ def watch() -> None:
 def scan(as_json: bool, otel: bool) -> None:
     """One-shot scan for AI agents."""
     from riva.core.workspace import find_workspace, load_workspace_config
+    from riva.hub.consent import maybe_prompt_consent
+    from riva.hub.client import ping_hub
+
+    if not as_json:
+        maybe_prompt_consent()
 
     workspace_dir = find_workspace()
     ws_config = None
@@ -73,6 +82,8 @@ def scan(as_json: bool, otel: bool) -> None:
     monitor = ResourceMonitor(registry=registry, workspace_config=ws_config, otel_exporter=otel_exporter)
     instances = monitor.scan_once()
     _attach_usage_stats(instances, registry)
+
+    ping_hub(instances)
 
     if otel_exporter:
         otel_exporter.shutdown()
