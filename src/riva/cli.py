@@ -46,6 +46,34 @@ def cli(ctx: click.Context, version: bool) -> None:
 
 
 @cli.command()
+def ping() -> None:
+    """Ping the Riva community hub with your agent + location info."""
+    from riva.hub.consent import maybe_prompt_consent
+    from riva.hub.config import get_consent
+
+    maybe_prompt_consent()
+    if not get_consent():
+        click.echo("Hub telemetry disabled. Run `riva ping` again to opt in.")
+        return
+
+    click.echo("Detecting agents and location…")
+    try:
+        from riva.hub.client import ping_hub_manual
+        sent = ping_hub_manual()
+    except Exception as exc:
+        click.echo(f"Ping failed: {exc}", err=True)
+        return
+
+    if not sent:
+        click.echo("No running agents detected.")
+        return
+
+    for p in sent:
+        click.echo(f"  ✓ {p['agent']} | {p['city']}, {p['country']} | {p['os']}")
+    click.echo(f"\nAdded to the Riva community map — sarkar.ai/riva/map/")
+
+
+@cli.command()
 def watch() -> None:
     """Launch the live TUI dashboard."""
     from riva.hub.consent import maybe_prompt_consent
