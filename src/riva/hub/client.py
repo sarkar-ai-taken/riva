@@ -61,6 +61,7 @@ def _os_string() -> str:
     if system == "Linux":
         try:
             import distro  # type: ignore[import-untyped]
+
             return f"Linux {distro.name()} {distro.version()}"
         except ImportError:
             return f"Linux {platform.release()}"
@@ -127,9 +128,9 @@ def ping_hub(instances: list[AgentInstance]) -> None:
 def ping_hub_manual(agents: list[str] | None = None) -> list[dict]:
     """Synchronous ping used by `riva ping` CLI command. Returns sent payloads."""
     from riva import __version__
-    from riva.hub.config import get_endpoint
     from riva.agents.registry import get_default_registry
     from riva.core.monitor import ResourceMonitor
+    from riva.hub.config import get_endpoint
 
     endpoint = get_endpoint()
     geo = _get_geo()

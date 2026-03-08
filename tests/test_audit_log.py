@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from riva.core.audit_log import AuditLog
 
@@ -116,7 +115,7 @@ class TestAuditLogIntegrity:
 class TestAuditLogPersistence:
     def test_resumes_chain_after_reopen(self, tmp_path):
         log1 = AuditLog(log_dir=tmp_path)
-        e1 = log1.append("e1", "first")
+        log1.append("e1", "first")
         e2 = log1.append("e2", "second")
 
         # Re-open the log (simulates process restart)

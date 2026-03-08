@@ -48,8 +48,8 @@ def cli(ctx: click.Context, version: bool) -> None:
 @cli.command()
 def ping() -> None:
     """Ping the Riva community hub with your agent + location info."""
-    from riva.hub.consent import maybe_prompt_consent
     from riva.hub.config import get_consent
+    from riva.hub.consent import maybe_prompt_consent
 
     maybe_prompt_consent()
     if not get_consent():
@@ -59,6 +59,7 @@ def ping() -> None:
     click.echo("Detecting agents and location…")
     try:
         from riva.hub.client import ping_hub_manual
+
         sent = ping_hub_manual()
     except Exception as exc:
         click.echo(f"Ping failed: {exc}", err=True)
@@ -70,7 +71,7 @@ def ping() -> None:
 
     for p in sent:
         click.echo(f"  ✓ {p['agent']} | {p['city']}, {p['country']} | {p['os']}")
-    click.echo(f"\nAdded to the Riva community map — sarkar.ai/riva/map/")
+    click.echo("\nAdded to the Riva community map — sarkar.ai/riva/map/")
 
 
 @cli.command()
@@ -91,8 +92,8 @@ def watch() -> None:
 def scan(as_json: bool, otel: bool) -> None:
     """One-shot scan for AI agents."""
     from riva.core.workspace import find_workspace, load_workspace_config
-    from riva.hub.consent import maybe_prompt_consent
     from riva.hub.client import ping_hub
+    from riva.hub.consent import maybe_prompt_consent
 
     if not as_json:
         maybe_prompt_consent()
