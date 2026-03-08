@@ -1,5 +1,15 @@
 # Release History
 
+## v0.3.9 (2026-03-08)
+
+### Riva Hub — Community Telemetry
+
+- **`riva ping`** — new CLI command that auto-detects running agents, resolves city/country/lat/lon via ip-api.com, and POSTs to the Riva Hub (`sarkar.ai/api/v1/ping`); prints confirmation with agent, city, and OS
+- **Opt-in consent** — one-time prompt on `riva scan` and `riva watch`; stored in `~/.config/riva/hub.toml`
+- **Auto-ping** — fires silently in a background daemon thread on every scan/watch session after consent
+- **Agent slug mapping** — all 13 supported agents mapped to canonical hub slugs (claude-code, opencode, openclaw, codex-cli, gemini-cli, cursor, cline, windsurf, continue-dev, github-copilot, langgraph, crewai, autogen)
+- **Geo via ip-api.com** — city, country, lat, lon resolved client-side; no PII, no raw IP stored
+
 ## v0.3.8 (2026-03-07)
 
 ### Bug Fix
