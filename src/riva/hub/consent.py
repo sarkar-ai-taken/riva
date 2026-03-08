@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import click
 
 
@@ -11,6 +13,9 @@ def maybe_prompt_consent() -> None:
 
     if get_consent() is not None:
         return  # already answered
+
+    if not sys.stdin.isatty():
+        return  # non-interactive (CI, pipes, scripts) — skip silently
 
     click.echo()
     click.echo("  [Riva Hub] Share anonymous usage data with the Riva community?")
