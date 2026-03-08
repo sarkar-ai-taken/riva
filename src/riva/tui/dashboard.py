@@ -27,7 +27,7 @@ from riva.utils.formatting import format_number
 def _build_header() -> Panel:
     """Build the dashboard header."""
     header_text = Text("RIVA", style="bold bright_cyan")
-    header_text.append(" — AI Agent Task Manager", style="dim white")
+    header_text.append(" — AI Agent Command Center", style="dim white")
     return Panel(header_text, border_style="bright_blue", padding=(0, 1))
 
 
