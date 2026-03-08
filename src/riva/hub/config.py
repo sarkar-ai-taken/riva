@@ -13,7 +13,7 @@ from pathlib import Path
 _CONSENTED = "yes"
 _DECLINED = "no"
 
-HUB_ENDPOINT = "http://placeholder/api/ping"  # replaced with real IP at runtime
+HUB_ENDPOINT = "https://sarkar.ai/api/v1/ping"
 _CONFIG_DIR = Path.home() / ".config" / "riva"
 _HUB_FILE = _CONFIG_DIR / "hub.toml"
 
