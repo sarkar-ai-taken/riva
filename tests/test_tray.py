@@ -29,7 +29,8 @@ class TestNeedsCompile:
         binary = tmp_path / "tray-mac"
         source = tmp_path / "tray_mac.swift"
         source.write_text("// swift")
-        assert _needs_compile(binary, source) is True
+        with patch("riva.tray.manager._VERSION_FILE", tmp_path / "tray-mac.version"):
+            assert _needs_compile(binary, source, "0.3.11") is True
 
     def test_stale_binary(self, tmp_path):
         source = tmp_path / "tray_mac.swift"
@@ -38,16 +39,31 @@ class TestNeedsCompile:
         binary.write_text("old")
         # Force source to be newer
         os.utime(binary, (0, 0))
-        assert _needs_compile(binary, source) is True
+        with patch("riva.tray.manager._VERSION_FILE", tmp_path / "tray-mac.version"):
+            assert _needs_compile(binary, source, "0.3.11") is True
 
-    def test_fresh_binary(self, tmp_path):
+    def test_fresh_binary_same_version(self, tmp_path):
         source = tmp_path / "tray_mac.swift"
         source.write_text("// swift")
         binary = tmp_path / "tray-mac"
         binary.write_text("compiled")
+        version_file = tmp_path / "tray-mac.version"
+        version_file.write_text("0.3.11")
         # Force binary to be newer
         os.utime(source, (0, 0))
-        assert _needs_compile(binary, source) is False
+        with patch("riva.tray.manager._VERSION_FILE", version_file):
+            assert _needs_compile(binary, source, "0.3.11") is False
+
+    def test_version_mismatch_triggers_recompile(self, tmp_path):
+        source = tmp_path / "tray_mac.swift"
+        source.write_text("// swift")
+        binary = tmp_path / "tray-mac"
+        binary.write_text("compiled")
+        version_file = tmp_path / "tray-mac.version"
+        version_file.write_text("0.3.10")  # old version
+        os.utime(source, (0, 0))
+        with patch("riva.tray.manager._VERSION_FILE", version_file):
+            assert _needs_compile(binary, source, "0.3.11") is True
 
 
 class TestCompile:
@@ -57,7 +73,7 @@ class TestCompile:
         binary = tmp_path / "hello"
 
         with patch("riva.tray.manager.CACHE_DIR", tmp_path):
-            result = _compile(source, binary)
+            result = _compile(source, binary, "0.3.11")
 
         # On macOS with Xcode this succeeds; on Linux/CI it may fail
         # We accept both outcomes — the important thing is no crash
@@ -72,7 +88,7 @@ class TestCompile:
             patch("riva.tray.manager.CACHE_DIR", tmp_path),
             patch("riva.tray.manager.subprocess.run", side_effect=FileNotFoundError),
         ):
-            assert _compile(source, binary) is False
+            assert _compile(source, binary, "0.3.11") is False
 
     def test_compile_failure(self, tmp_path):
         import subprocess
@@ -88,7 +104,7 @@ class TestCompile:
                 side_effect=subprocess.CalledProcessError(1, "swiftc", stderr=b"error"),
             ),
         ):
-            assert _compile(source, binary) is False
+            assert _compile(source, binary, "0.3.11") is False
 
     def test_compile_timeout(self, tmp_path):
         import subprocess
@@ -104,7 +120,7 @@ class TestCompile:
                 side_effect=subprocess.TimeoutExpired("swiftc", 120),
             ),
         ):
-            assert _compile(source, binary) is False
+            assert _compile(source, binary, "0.3.11") is False
 
 
 class TestHandleAction:

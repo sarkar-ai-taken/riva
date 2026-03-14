@@ -27,14 +27,28 @@ def _find_swift_source() -> Path | None:
     return None
 
 
-def _needs_compile(binary: Path, source: Path) -> bool:
-    """Check whether the cached binary needs (re)compilation."""
+_VERSION_FILE = CACHE_DIR / "tray-mac.version"
+
+
+def _needs_compile(binary: Path, source: Path, current_version: str) -> bool:
+    """Check whether the cached binary needs (re)compilation.
+
+    Recompiles when:
+    - binary doesn't exist
+    - source is newer than binary (source was updated)
+    - installed riva version differs from the version that built the binary
+    """
     if not binary.exists():
         return True
-    return source.stat().st_mtime > binary.stat().st_mtime
+    if source.stat().st_mtime > binary.stat().st_mtime:
+        return True
+    if _VERSION_FILE.exists():
+        if _VERSION_FILE.read_text().strip() != current_version:
+            return True
+    return False
 
 
-def _compile(source: Path, binary: Path) -> bool:
+def _compile(source: Path, binary: Path, current_version: str) -> bool:
     """Compile the Swift tray binary.  Returns True on success."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -44,7 +58,8 @@ def _compile(source: Path, binary: Path) -> bool:
             timeout=120,
             check=True,
         )
-        log.info("Tray binary compiled successfully")
+        _VERSION_FILE.write_text(current_version)
+        log.info("Tray binary compiled successfully (v%s)", current_version)
         return True
     except FileNotFoundError:
         log.warning("swiftc not found — install Xcode Command Line Tools")
@@ -138,9 +153,9 @@ def start_tray(
         return
 
     binary = CACHE_DIR / BINARY_NAME
-    if _needs_compile(binary, source):
-        log.info("Compiling tray binary (first run)…")
-        if not _compile(source, binary):
+    if _needs_compile(binary, source, version):
+        log.info("Compiling tray binary…")
+        if not _compile(source, binary, version):
             return
 
     child = subprocess.Popen(
