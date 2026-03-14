@@ -441,3 +441,44 @@ function renderConfigs(configs) {
       '<div class="accordion-body"><table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>' + tbody + '</tbody></table></div></div>';
   }).join('');
 }
+
+function renderSkills(skills) {
+  var hint = document.getElementById('skills-hint');
+  var wrap = document.getElementById('skills-table-wrap');
+  if (!skills.length) {
+    if (hint) hint.style.display = '';
+    wrap.innerHTML = '<p class="empty-msg">No skills found. Define skills in <code>.riva/skills.toml</code> or run <code>riva skills scan --all-sessions</code>.</p>';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+
+  var rows = skills.map(function(sk) {
+    var st = sk.forensic_stats || {};
+    var uses = st.usage_count || 0;
+    var sr = st.success_rate != null ? st.success_rate : null;
+    var srCell = uses === 0
+      ? '<td class="num dim">—</td>'
+      : '<td class="num ' + (sr >= 0.8 ? 'good' : sr >= 0.5 ? 'warn' : 'bad') + '">' + Math.round(sr * 100) + '%</td>';
+    var bt = uses === 0 ? '—' : (st.backtrack_count || 0);
+    var tokens = uses === 0 ? '—' : (st.avg_tokens ? Math.round(st.avg_tokens).toLocaleString() : '0');
+    var lastUsed = st.last_used ? st.last_used.substring(0, 10) : '—';
+    var tags = (sk.tags || []).map(function(t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
+    var shared = sk.shared ? '<span class="tag shared">shared</span>' : '';
+    return '<tr>' +
+      '<td><span class="skill-name">' + esc(sk.name) + '</span>' + (tags ? ' ' + tags : '') + (shared ? ' ' + shared : '') + '</td>' +
+      '<td>' + esc(sk.agent || 'shared') + '</td>' +
+      '<td class="mono">' + esc(sk.invocation || sk.name) + '</td>' +
+      '<td class="num">' + uses + '</td>' +
+      srCell +
+      '<td class="num">' + bt + '</td>' +
+      '<td class="num">' + tokens + '</td>' +
+      '<td>' + esc(lastUsed) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  wrap.innerHTML = '<table><thead><tr>' +
+    '<th>Skill</th><th>Agent</th><th>Invocation</th>' +
+    '<th class="num">Uses</th><th class="num">Success%</th>' +
+    '<th class="num">Backtracks</th><th class="num">Avg Tokens</th><th>Last Used</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}

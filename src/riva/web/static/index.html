@@ -80,6 +80,12 @@
         </svg>
         <span class="nav-label">Forensics</span>
       </button>
+      <button class="nav-item" data-tab="skills">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+        <span class="nav-label">Skills</span>
+      </button>
     </nav>
 
     <div class="sidebar-bottom">
@@ -281,6 +287,17 @@
       <section id="sec-forensic-detail" style="display:none">
         <h2>Session Detail</h2>
         <div id="forensic-detail-wrap"></div>
+      </section>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- Skills Tab -->
+    <!-- ============================================================ -->
+    <div class="tab-panel" id="tab-skills">
+      <section id="sec-skills">
+        <h2>Skills</h2>
+        <p class="empty-msg" id="skills-hint">Skills are reusable agent workflows tracked across sessions. Run <code>riva skills scan --all-sessions</code> to populate stats.</p>
+        <div id="skills-table-wrap"><p class="empty-msg">Loading...</p></div>
       </section>
     </div>
 

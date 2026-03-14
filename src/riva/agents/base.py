@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
+    from riva.core.skills import Skill
     from riva.core.usage_stats import UsageStats
 
 
@@ -102,6 +103,10 @@ class AgentDetector(ABC):
     def parse_usage(self) -> UsageStats | None:
         """Parse usage statistics. Returns ``None`` by default."""
         return None
+
+    def parse_skills(self) -> list[Skill]:
+        """Parse skills/commands defined for this agent. Returns ``[]`` by default."""
+        return []
 
     def build_instance(
         self,

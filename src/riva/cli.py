@@ -29,10 +29,134 @@ def _get_version() -> str:
     return version("riva")
 
 
+_MCP_HELP = """\
+# riva — AI Agent Command Center
+
+Use `riva` to observe, audit, and query AI coding agents (Claude Code, Cursor, Kiro, etc.)
+running on the current machine. All commands are read-only unless noted.
+
+## Commands
+
+### riva scan
+Discover all running AI agents and show their status, PID, CPU/memory, working directory.
+- `--json` — machine-readable output
+- `--otel` — emit spans via OpenTelemetry
+
+### riva stats
+Aggregate token usage, session counts, and tool-call totals per agent.
+- `--json` — machine-readable output
+- `--agent NAME` — filter to one agent
+
+### riva forensics
+Replay and inspect past agent sessions stored in JSONL logs.
+- `--agent NAME` — filter by agent
+- `--limit N` — max sessions (default 20)
+- `--json` — machine-readable output
+
+### riva skills list
+List all known skills (slash commands / workflows) with forensic stats.
+- `--agent NAME` — filter by agent
+- `--json` — machine-readable output
+
+### riva skills scan
+Parse session logs and record skill invocations to the local SQLite store.
+- `--agent NAME` — limit to one agent
+- `--all-sessions` — process every session, not just recent
+
+### riva skills stats SKILL_ID
+Show detailed per-skill metrics: uses, success rate, backtrack rate, avg tokens.
+
+### riva skills add NAME
+Define a new skill and save it to the global skills registry.
+
+### riva skills share SKILL_ID [--to AGENT]
+Mark a skill as shared (available to all agents). Optionally reassign agent.
+
+### riva skills export FILE / riva skills import FILE
+Round-trip skill definitions as TOML.
+
+### riva web
+Launch the web dashboard (default port 7821).
+- `--port PORT` — custom port
+- `--host HOST` — bind address
+
+### riva audit
+Run a one-shot security audit of running agents.
+- `--network` — include network connection checks
+
+### riva config
+Show current riva configuration.
+
+### riva env
+Show AI-related environment variables detected on the machine.
+
+### riva network
+Show active network connections for each running agent.
+
+### riva history [--hours N]
+Export per-agent resource usage history as JSON.
+
+## Output conventions
+- Default output is human-readable Rich tables.
+- Pass `--json` to any command that supports it for machine-readable JSON.
+- All data is read from local process state, config files, and JSONL session logs.
+  Nothing is sent remotely unless `riva ping` is explicitly called.
+
+## Useful patterns for agents
+```
+# What agents are running right now?
+riva scan --json
+
+# How many tokens has Claude Code used?
+riva stats --json --agent claude
+
+# What skills does this workspace define?
+riva skills list --json
+
+# Parse sessions and build skill usage stats
+riva skills scan --all-sessions
+
+# Run a security audit
+riva audit --json
+```
+"""
+
+
+def _background_ping() -> None:
+    """Fire-and-forget ping on every command if consent was given.
+
+    Skips silently if consent is not set or no agents are running.
+    Runs in a daemon thread so it never delays the command.
+    """
+    from riva.hub.config import get_consent
+
+    if not get_consent():
+        return
+
+    import threading
+
+    def _run() -> None:
+        try:
+            from riva.agents.registry import get_default_registry
+            from riva.core.monitor import ResourceMonitor
+            from riva.hub.client import ping_hub
+
+            registry = get_default_registry()
+            monitor = ResourceMonitor(registry=registry)
+            instances = monitor.scan_once()
+            ping_hub(instances)
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @click.group(invoke_without_command=True)
 @click.option("--version", is_flag=True, help="Show version and exit.")
+@click.option("--mcp-help", "mcp_help", is_flag=True, help="Print Markdown tool description for AI agent consumption.")
+@click.option("--no-ping", "no_ping", is_flag=True, help="Skip the automatic hub ping for this invocation.")
 @click.pass_context
-def cli(ctx: click.Context, version: bool) -> None:
+def cli(ctx: click.Context, version: bool, mcp_help: bool, no_ping: bool) -> None:
     """Riva - AI Agent Command Center.
 
     Discover and monitor AI coding agents running on your machine.
@@ -41,6 +165,12 @@ def cli(ctx: click.Context, version: bool) -> None:
         click.echo(f"riva {_get_version()}")
         ctx.exit()
         return
+    if mcp_help:
+        click.echo(_MCP_HELP)
+        ctx.exit()
+        return
+    if not no_ping:
+        _background_ping()
     if ctx.invoked_subcommand is None:
         ctx.invoke(watch)
 
@@ -512,6 +642,180 @@ def network(as_json: bool) -> None:
             console.print()
             console.print(table)
         console.print()
+
+
+@cli.command(name="map")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.option("--agent", "agent_filter", default=None, help="Show only this agent (substring match).")
+def resource_map(as_json: bool, agent_filter: str | None) -> None:
+    """Show a resource map of all touched resources per agent.
+
+    Covers filesystem paths, live network connections, process tree,
+    sandbox state, MCP servers, and AI environment variables.
+    """
+    import json as _json
+
+    from rich.console import Console
+    from rich.rule import Rule
+    from rich.tree import Tree
+
+    from riva.agents.base import AgentStatus
+    from riva.core.env_scanner import scan_env_vars
+    from riva.core.resource_map import build_all_resource_maps
+    from riva.core.monitor import ResourceMonitor
+
+    monitor = ResourceMonitor()
+    instances = monitor.scan_once()
+    registry = monitor.registry
+
+    if agent_filter:
+        lo = agent_filter.lower()
+        instances = [i for i in instances if lo in i.name.lower()]
+
+    maps = build_all_resource_maps(instances, registry=registry)
+    env_vars = scan_env_vars()
+
+    # ------------------------------------------------------------------
+    # JSON output
+    # ------------------------------------------------------------------
+    if as_json:
+        out = {
+            "scanned_at": maps[0].scanned_at if maps else None,
+            "agents": [m.to_dict() for m in maps],
+            "env_vars": env_vars,
+        }
+        click.echo(_json.dumps(out, indent=2))
+        return
+
+    # ------------------------------------------------------------------
+    # Rich tree output
+    # ------------------------------------------------------------------
+    console = Console()
+    console.print()
+
+    STATUS_ICON = {
+        "running": "[bold green]●[/bold green]",
+        "installed": "[bold yellow]○[/bold yellow]",
+        "not_found": "[dim]✗[/dim]",
+    }
+
+    for rm in maps:
+        icon = STATUS_ICON.get(rm.status, "?")
+        pid_str = f"  [dim]PID {rm.pid}[/dim]" if rm.pid else ""
+        ver_str = f"  [dim]v{rm.version}[/dim]" if rm.version else ""
+        tree = Tree(f"{icon} [bold cyan]{rm.agent_name}[/bold cyan]{pid_str}{ver_str}")
+
+        # --- Filesystem ---------------------------------------------------
+        fs_node = tree.add("[bold white]Filesystem[/bold white]")
+        if rm.filesystem.binary_path:
+            fs_node.add(f"[dim]binary[/dim]  {rm.filesystem.binary_path}")
+        if rm.filesystem.config_dir:
+            cfg_node = fs_node.add(f"[dim]config [/dim]  {rm.filesystem.config_dir}")
+            for f in rm.filesystem.config_files:
+                cfg_node.add(f"[dim]{Path(f).name}[/dim]")
+            if not rm.filesystem.config_files:
+                cfg_node.add("[dim](empty)[/dim]")
+        if rm.filesystem.working_directory:
+            fs_node.add(f"[dim]cwd    [/dim]  {rm.filesystem.working_directory}")
+        if rm.filesystem.session_files:
+            sess_node = fs_node.add(f"[dim]sessions[/dim] ({len(rm.filesystem.session_files)})")
+            for sf in rm.filesystem.session_files[:5]:
+                sess_node.add(f"[dim]{sf}[/dim]")
+            if len(rm.filesystem.session_files) > 5:
+                sess_node.add(f"[dim]… and {len(rm.filesystem.session_files) - 5} more[/dim]")
+
+        # --- Network ------------------------------------------------------
+        net_node = tree.add("[bold white]Network[/bold white]")
+        if rm.network.api_domain:
+            net_node.add(f"[dim]primary API[/dim]  [cyan]{rm.network.api_domain}[/cyan]")
+        if rm.network.connections:
+            for c in rm.network.connections:
+                tls = "[green]TLS[/green]" if c.is_tls else "[dim]plain[/dim]"
+                svc = f"  [dim]← {c.service}[/dim]" if c.service else ""
+                status_style = (
+                    "green" if c.status == "ESTABLISHED"
+                    else "yellow" if c.status in ("CLOSE_WAIT", "TIME_WAIT")
+                    else "dim"
+                )
+                net_node.add(
+                    f"[{status_style}]{c.remote}[/{status_style}]  {tls}{svc}"
+                )
+        elif rm.status == "running":
+            net_node.add("[dim]no active connections[/dim]")
+        else:
+            net_node.add("[dim]not running[/dim]")
+
+        # --- Processes ----------------------------------------------------
+        proc_node = tree.add("[bold white]Processes[/bold white]")
+        if rm.processes.pid:
+            proc_node.add(f"[dim]pid[/dim]  {rm.processes.pid}")
+        if rm.processes.parent_name:
+            launcher_str = f"  [dim]({rm.processes.launched_by})[/dim]" if rm.processes.launched_by else ""
+            proc_node.add(
+                f"[dim]parent[/dim]  {rm.processes.parent_name} "
+                f"[dim](PID {rm.processes.parent_pid})[/dim]{launcher_str}"
+            )
+        if rm.processes.ancestor_chain:
+            anc_node = proc_node.add(f"[dim]ancestors[/dim] ({len(rm.processes.ancestor_chain)})")
+            for anc in rm.processes.ancestor_chain[:6]:
+                anc_node.add(f"[dim]{anc.get('name', '?')}  PID {anc.get('pid', '?')}[/dim]")
+        if rm.processes.children:
+            ch_node = proc_node.add(f"[dim]children[/dim] ({len(rm.processes.children)})")
+            for ch in rm.processes.children[:8]:
+                cpu = ch.get("cpu_percent", 0.0)
+                mem = ch.get("memory_mb", 0.0)
+                ch_node.add(
+                    f"{ch.get('name', '?')}  [dim]PID {ch.get('pid')}  "
+                    f"CPU {cpu:.1f}%  {mem:.1f} MB[/dim]"
+                )
+            if len(rm.processes.children) > 8:
+                ch_node.add(f"[dim]… and {len(rm.processes.children) - 8} more[/dim]")
+        if rm.status == "running":
+            sandbox_str = (
+                f"[green]{rm.processes.sandbox_type or 'sandboxed'}[/green]"
+                if rm.processes.is_sandboxed
+                else "[dim]not sandboxed[/dim]"
+            )
+            proc_node.add(f"[dim]sandbox[/dim]  {sandbox_str}")
+
+        # --- MCP Servers --------------------------------------------------
+        if rm.mcp_servers:
+            mcp_node = tree.add(f"[bold white]MCP Servers[/bold white] ({len(rm.mcp_servers)})")
+            for srv in rm.mcp_servers:
+                transport_style = "cyan" if srv.transport == "http" else "magenta"
+                if srv.transport == "stdio" and srv.command:
+                    cmd_preview = srv.command
+                    if srv.args:
+                        cmd_preview += " " + " ".join(srv.args[:3])
+                    mcp_node.add(
+                        f"[bold]{srv.name}[/bold]  "
+                        f"[{transport_style}]{srv.transport}[/{transport_style}]  "
+                        f"[dim]{cmd_preview}[/dim]"
+                    )
+                elif srv.url:
+                    mcp_node.add(
+                        f"[bold]{srv.name}[/bold]  "
+                        f"[{transport_style}]{srv.transport}[/{transport_style}]  "
+                        f"[dim]{srv.url}[/dim]"
+                    )
+                else:
+                    mcp_node.add(f"[bold]{srv.name}[/bold]  [{transport_style}]{srv.transport}[/{transport_style}]")
+
+        console.print(tree)
+        console.print()
+
+    # --- Environment vars (global, shown once at the bottom) --------------
+    if env_vars:
+        console.print(Rule("[bold white]AI Environment Variables[/bold white]", style="dim"))
+        env_tree = Tree("[bold white]env[/bold white]")
+        for ev in env_vars:
+            secret_note = f"  [dim]({ev['raw_length']} chars)[/dim]" if "****" in ev["value"] else ""
+            env_tree.add(f"[yellow]{ev['name']}[/yellow] = [dim]{ev['value']}[/dim]{secret_note}")
+        console.print(env_tree)
+        console.print()
+
+    if not maps:
+        console.print("[dim]No agents found. Run `riva scan` to check for agents.[/dim]\n")
 
 
 @cli.command()
@@ -1769,6 +2073,8 @@ def otel_export_sessions(limit: int, project: str | None) -> None:
     cfg = load_otel_config(ws_config)
     cfg.enabled = True
     cfg.traces = True
+    cfg.metrics = False  # Don't push empty metrics snapshot during sessions export
+    cfg.logs = False  # Don't push logs during sessions export
 
     session_list = discover_sessions(project_filter=project, limit=limit)
     if not session_list:
@@ -1817,3 +2123,451 @@ def _attach_usage_stats(instances: list, registry) -> None:
                 inst.usage_stats = detector.parse_usage()
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Skills commands
+# ---------------------------------------------------------------------------
+
+
+@cli.group(invoke_without_command=True)
+@click.option("--agent", "agent_filter", default=None, help="Filter by agent name.")
+@click.option("--workspace", "workspace_only", is_flag=True, help="Show only workspace-scoped skills.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.pass_context
+def skills(ctx: click.Context, agent_filter: str | None, workspace_only: bool, as_json: bool) -> None:
+    """Skills management — discover, track, and share agent skills."""
+    ctx.ensure_object(dict)
+    ctx.obj["agent_filter"] = agent_filter
+    ctx.obj["workspace_only"] = workspace_only
+    ctx.obj["as_json"] = as_json
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(skills_list, agent_filter=agent_filter, workspace_only=workspace_only, as_json=as_json)
+
+
+@skills.command(name="list")
+@click.option("--agent", "agent_filter", default=None, help="Filter by agent name.")
+@click.option("--workspace", "workspace_only", is_flag=True, help="Only workspace-scoped skills.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def skills_list(agent_filter: str | None, workspace_only: bool, as_json: bool) -> None:
+    """List all known skills with forensic stats."""
+    from riva.agents.registry import get_default_registry
+    from riva.core.skills import (
+        compute_forensic_stats,
+        load_global_skills,
+        load_workspace_skills,
+    )
+    from riva.core.storage import RivaStorage
+    from riva.core.workspace import find_workspace
+
+    all_skills = []
+
+    if not workspace_only:
+        all_skills.extend(load_global_skills())
+
+    workspace_dir = find_workspace()
+    if workspace_dir:
+        all_skills.extend(load_workspace_skills(workspace_dir))
+
+    # Discover from detectors
+    registry = get_default_registry(workspace_dir=workspace_dir)
+    existing_ids = {s.id for s in all_skills}
+    for detector in registry.detectors:
+        if agent_filter and agent_filter.lower() not in detector.agent_name.lower():
+            continue
+        if detector.is_installed():
+            try:
+                for sk in detector.parse_skills():
+                    if sk.id not in existing_ids:
+                        all_skills.append(sk)
+                        existing_ids.add(sk.id)
+            except Exception:
+                pass
+
+    if agent_filter:
+        all_skills = [s for s in all_skills if s.agent and agent_filter.lower() in s.agent.lower()]
+
+    # Attach forensic stats from storage
+    storage = RivaStorage()
+    try:
+        for skill in all_skills:
+            invocations = storage.get_skill_invocations(skill.id, workspace=skill.workspace or "")
+            skill.forensic_stats = compute_forensic_stats(invocations)
+    finally:
+        storage.close()
+
+    if as_json:
+        output = []
+        for sk in all_skills:
+            st = sk.forensic_stats
+            output.append(
+                {
+                    "id": sk.id,
+                    "name": sk.name,
+                    "description": sk.description,
+                    "agent": sk.agent,
+                    "invocation": sk.invocation,
+                    "tags": sk.tags,
+                    "shared": sk.shared,
+                    "workspace": sk.workspace,
+                    "forensic_stats": {
+                        "usage_count": st.usage_count,
+                        "success_count": st.success_count,
+                        "success_rate": round(st.success_rate, 3),
+                        "backtrack_count": st.backtrack_count,
+                        "backtrack_rate": round(st.backtrack_rate, 3),
+                        "avg_tokens": st.avg_tokens,
+                        "avg_actions": st.avg_actions,
+                        "last_used": st.last_used,
+                    },
+                }
+            )
+        click.echo(json.dumps(output, indent=2))
+        return
+
+    console = Console()
+    if not all_skills:
+        console.print("\n[dim]No skills found. Define skills in .riva/skills.toml or run [bold]riva skills scan[/bold].[/dim]\n")
+        return
+
+    from riva.tui.components import build_skills_panel
+
+    console.print()
+    console.print(build_skills_panel(all_skills))
+    console.print()
+
+
+@skills.command(name="scan")
+@click.option("--session", "session_id", default="latest", help="Session to scan (default: latest).")
+@click.option("--all-sessions", "all_sessions", is_flag=True, help="Scan all recent sessions.")
+@click.option("--limit", default=20, type=int, help="Max sessions to scan when using --all-sessions.")
+def skills_scan(session_id: str, all_sessions: bool, limit: int) -> None:
+    """Scan forensic sessions to populate skill invocation stats."""
+    from riva.core.forensic import extract_skill_invocations, parse_session, resolve_session, discover_sessions
+    from riva.core.storage import RivaStorage
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    storage = RivaStorage()
+    workspace_dir = find_workspace()
+
+    try:
+        if all_sessions:
+            sessions = discover_sessions(limit=limit)
+            if not sessions:
+                console.print("\n[dim]No sessions found.[/dim]\n")
+                return
+
+            total_invocations = 0
+            console.print(f"\nScanning {len(sessions)} session(s)…\n")
+            for s in sessions:
+                try:
+                    parsed = parse_session(s["file_path"])
+                    invocations = extract_skill_invocations(parsed)
+                    for inv in invocations:
+                        storage.record_skill_invocation(
+                            skill_id=inv["skill_id"],
+                            workspace=str(workspace_dir) if workspace_dir else "",
+                            session_id=inv["session_id"],
+                            agent=inv["agent"],
+                            timestamp=inv["timestamp"],
+                            had_backtrack=inv["had_backtrack"],
+                            token_count=inv["token_count"],
+                            action_count=inv["action_count"],
+                            success=inv["success"],
+                        )
+                    total_invocations += len(invocations)
+                    if invocations:
+                        slug = parsed.slug or parsed.session_id[:12]
+                        console.print(f"  {slug}: {len(invocations)} skill invocation(s)")
+                except Exception:
+                    pass
+
+            console.print(f"\n[bold green]Done.[/bold green] {total_invocations} invocation(s) recorded.\n")
+        else:
+            sf = resolve_session(session_id)
+            if not sf:
+                console.print(f"\n[red]Session '{session_id}' not found.[/red]\n")
+                return
+
+            parsed = parse_session(sf)
+            invocations = extract_skill_invocations(parsed)
+
+            if not invocations:
+                console.print("\n[dim]No skill invocations detected in this session.[/dim]\n")
+                return
+
+            for inv in invocations:
+                storage.record_skill_invocation(
+                    skill_id=inv["skill_id"],
+                    workspace=str(workspace_dir) if workspace_dir else "",
+                    session_id=inv["session_id"],
+                    agent=inv["agent"],
+                    timestamp=inv["timestamp"],
+                    had_backtrack=inv["had_backtrack"],
+                    token_count=inv["token_count"],
+                    action_count=inv["action_count"],
+                    success=inv["success"],
+                )
+
+            slug = parsed.slug or parsed.session_id[:12]
+            console.print(f"\n[bold green]{len(invocations)} skill invocation(s)[/bold green] recorded from session [cyan]{slug}[/cyan].\n")
+            for inv in invocations:
+                bt = " [yellow](backtrack)[/yellow]" if inv["had_backtrack"] else ""
+                console.print(f"  /{inv['skill_id']}{bt}  — {inv['token_count']} tokens, {inv['action_count']} actions")
+            console.print()
+    finally:
+        storage.close()
+
+
+@skills.command(name="stats")
+@click.argument("skill_id")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def skills_stats(skill_id: str, as_json: bool) -> None:
+    """Show detailed forensic stats for a specific skill."""
+    from riva.core.skills import compute_forensic_stats
+    from riva.core.storage import RivaStorage
+
+    storage = RivaStorage()
+    try:
+        invocations = storage.get_skill_invocations(skill_id)
+
+        if as_json:
+            st = compute_forensic_stats(invocations)
+            click.echo(
+                json.dumps(
+                    {
+                        "skill_id": skill_id,
+                        "usage_count": st.usage_count,
+                        "success_count": st.success_count,
+                        "success_rate": round(st.success_rate, 3),
+                        "backtrack_count": st.backtrack_count,
+                        "backtrack_rate": round(st.backtrack_rate, 3),
+                        "avg_tokens": st.avg_tokens,
+                        "avg_actions": st.avg_actions,
+                        "last_used": st.last_used,
+                        "invocations": invocations,
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        console = Console()
+        console.print()
+        if not invocations:
+            console.print(f"[dim]No recorded invocations for skill [bold]{skill_id}[/bold].[/dim]")
+            console.print("  Run [bold]riva skills scan[/bold] to detect invocations from sessions.\n")
+            return
+
+        st = compute_forensic_stats(invocations)
+        sr_style = "bold green" if st.success_rate >= 0.8 else "bold yellow" if st.success_rate >= 0.5 else "bold red"
+
+        console.print(f"[bold magenta]Skill:[/bold magenta] {skill_id}")
+        console.print(f"  Invocations:    {st.usage_count}")
+        console.print(f"  Success rate:   [{sr_style}]{st.success_rate:.0%}[/{sr_style}]")
+        console.print(f"  Backtracks:     {st.backtrack_count} ({st.backtrack_rate:.0%})")
+        console.print(f"  Avg tokens:     {st.avg_tokens:,.0f}")
+        console.print(f"  Avg actions:    {st.avg_actions:.1f}")
+        if st.last_used:
+            console.print(f"  Last used:      {st.last_used[:19]}")
+
+        if len(invocations) > 1:
+            console.print()
+            console.print("  [bold]Recent invocations:[/bold]")
+            for inv in invocations[:10]:
+                ts = (inv.get("timestamp") or "")[:19]
+                sess = (inv.get("session_id") or "?")[:12]
+                bt = " [yellow]backtrack[/yellow]" if inv.get("had_backtrack") else ""
+                ok = "[green]ok[/green]" if inv.get("success") else "[red]fail[/red]"
+                console.print(f"    {ts}  {sess}  {ok}{bt}  {inv.get('token_count', 0)} tok")
+        console.print()
+    finally:
+        storage.close()
+
+
+@skills.command(name="add")
+@click.argument("name")
+@click.option("--description", "-d", default="", help="Skill description.")
+@click.option("--agent", default=None, help="Agent this skill belongs to (e.g. 'Claude Code').")
+@click.option("--invocation", "-i", default=None, help="Trigger pattern (e.g. /commit).")
+@click.option("--tag", "tags", multiple=True, help="Tags (can repeat).")
+@click.option("--shared", is_flag=True, help="Mark as shared across agents.")
+@click.option("--global", "global_scope", is_flag=True, help="Save to ~/.riva/skills.toml (default: workspace).")
+def skills_add(
+    name: str,
+    description: str,
+    agent: str | None,
+    invocation: str | None,
+    tags: tuple[str, ...],
+    shared: bool,
+    global_scope: bool,
+) -> None:
+    """Add a skill definition."""
+    import re
+    from datetime import datetime, timezone
+
+    from riva.core.skills import Skill, load_global_skills, load_workspace_skills, save_global_skills, save_workspace_skills
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    skill_id = re.sub(r"[^a-z0-9_-]", "-", name.lower()).strip("-")
+
+    workspace_dir = find_workspace()
+
+    if global_scope or not workspace_dir:
+        existing = load_global_skills()
+        if any(s.id == skill_id for s in existing):
+            console.print(f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists globally. Update .riva/skills.toml manually to change it.[/yellow]\n")
+            return
+        skill = Skill(
+            id=skill_id,
+            name=name,
+            description=description,
+            agent=agent,
+            invocation=invocation or (f"/{skill_id}" if not agent else None),
+            tags=list(tags),
+            shared=shared,
+            workspace=None,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        save_global_skills(existing + [skill])
+        console.print(f"\n[bold green]Skill [cyan]{skill_id}[/cyan] added[/bold green] → ~/.riva/skills.toml\n")
+    else:
+        existing = load_workspace_skills(workspace_dir)
+        if any(s.id == skill_id for s in existing):
+            console.print(f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists in workspace.[/yellow]\n")
+            return
+        skill = Skill(
+            id=skill_id,
+            name=name,
+            description=description,
+            agent=agent,
+            invocation=invocation or (f"/{skill_id}" if not agent else None),
+            tags=list(tags),
+            shared=shared,
+            workspace=str(workspace_dir),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        save_workspace_skills(existing + [skill], workspace_dir)
+        console.print(f"\n[bold green]Skill [cyan]{skill_id}[/cyan] added[/bold green] → {workspace_dir / 'skills.toml'}\n")
+
+
+@skills.command(name="share")
+@click.argument("skill_id")
+@click.option("--to", "target_agent", default=None, help="Target agent to share to.")
+def skills_share(skill_id: str, target_agent: str | None) -> None:
+    """Mark a skill as shared and optionally translate it to another agent's format."""
+    from riva.core.skills import load_global_skills, load_workspace_skills, save_global_skills, save_workspace_skills
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    workspace_dir = find_workspace()
+
+    # Find the skill in workspace first, then global
+    found = None
+    source = None
+    if workspace_dir:
+        ws_skills = load_workspace_skills(workspace_dir)
+        for s in ws_skills:
+            if s.id == skill_id:
+                found = s
+                source = ("workspace", ws_skills, workspace_dir)
+                break
+
+    if not found:
+        global_skills = load_global_skills()
+        for s in global_skills:
+            if s.id == skill_id:
+                found = s
+                source = ("global", global_skills, None)
+                break
+
+    if not found:
+        console.print(f"\n[red]Skill '{skill_id}' not found.[/red]\n")
+        return
+
+    found.shared = True
+    if target_agent:
+        found.source_agent = found.agent
+        found.agent = target_agent
+
+    scope, skill_list, ws_dir = source  # type: ignore[misc]
+    if scope == "workspace" and ws_dir:
+        save_workspace_skills(skill_list, ws_dir)
+    else:
+        save_global_skills(skill_list)
+
+    msg = f"shared"
+    if target_agent:
+        msg = f"shared with [bold]{target_agent}[/bold]"
+    console.print(f"\n[bold green]Skill [cyan]{skill_id}[/cyan] {msg}.[/bold green]\n")
+
+
+@skills.command(name="export")
+@click.argument("output_file", type=click.Path())
+@click.option("--workspace", "workspace_only", is_flag=True, help="Only export workspace skills.")
+@click.option("--shared-only", is_flag=True, help="Only export shared skills.")
+def skills_export(output_file: str, workspace_only: bool, shared_only: bool) -> None:
+    """Export skills to a TOML file."""
+    from riva.core.skills import export_skills_toml, load_global_skills, load_workspace_skills
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    all_skills = []
+    workspace_dir = find_workspace()
+
+    if not workspace_only:
+        all_skills.extend(load_global_skills())
+    if workspace_dir:
+        all_skills.extend(load_workspace_skills(workspace_dir))
+
+    if shared_only:
+        all_skills = [s for s in all_skills if s.shared]
+
+    if not all_skills:
+        console.print("\n[dim]No skills to export.[/dim]\n")
+        return
+
+    Path(output_file).write_text(export_skills_toml(all_skills))
+    console.print(f"\n[bold green]Exported {len(all_skills)} skill(s)[/bold green] → {output_file}\n")
+
+
+@skills.command(name="import")
+@click.argument("input_file", type=click.Path(exists=True))
+@click.option("--global", "global_scope", is_flag=True, help="Import into ~/.riva/skills.toml (default: workspace).")
+@click.option("--agent", default=None, help="Override agent name for all imported skills.")
+def skills_import(input_file: str, global_scope: bool, agent: str | None) -> None:
+    """Import skills from a TOML file."""
+    from riva.core.skills import _parse_skills_toml, load_global_skills, load_workspace_skills, save_global_skills, save_workspace_skills
+    from riva.core.workspace import find_workspace
+
+    console = Console()
+    workspace_dir = find_workspace()
+
+    try:
+        import tomllib
+
+        data = tomllib.loads(Path(input_file).read_text())
+    except Exception as exc:
+        console.print(f"\n[red]Failed to parse {input_file}: {exc}[/red]\n")
+        return
+
+    imported = _parse_skills_toml(data, workspace=None)
+    if agent:
+        for sk in imported:
+            sk.source_agent = sk.agent
+            sk.agent = agent
+
+    if global_scope or not workspace_dir:
+        existing = load_global_skills()
+        existing_ids = {s.id for s in existing}
+        new_skills = [s for s in imported if s.id not in existing_ids]
+        save_global_skills(existing + new_skills)
+        console.print(f"\n[bold green]Imported {len(new_skills)} skill(s)[/bold green] → ~/.riva/skills.toml\n")
+    else:
+        existing = load_workspace_skills(workspace_dir)
+        existing_ids = {s.id for s in existing}
+        new_skills = [s for s in imported if s.id not in existing_ids]
+        save_workspace_skills(existing + new_skills, workspace_dir)
+        console.print(f"\n[bold green]Imported {len(new_skills)} skill(s)[/bold green] → {workspace_dir / 'skills.toml'}\n")

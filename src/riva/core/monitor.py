@@ -137,6 +137,14 @@ class ResourceMonitor:
         with self._lock:
             return list(self._orphans)
 
+    @property
+    def registry(self) -> AgentRegistry:
+        return self._registry
+
+    @property
+    def storage(self) -> Any | None:
+        return self._storage
+
     def _history_key(self, instance: AgentInstance) -> str:
         if instance.pid:
             return f"{instance.name}:{instance.pid}"

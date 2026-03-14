@@ -61,19 +61,21 @@ It **observes agent behavior** but does not execute agent actions.
 
 ## Highlights
 
-- **Agent discovery** — detect locally running agents across 13 frameworks and growing
+- **Agent discovery** — detect locally running agents across 14 frameworks and growing
 - **Lifecycle visibility** — see when agents start, stop, crash, or hang
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
 - **Environment scanning** — detect exposed API keys in environment variables
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
-- **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics
+- **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics; works for both interactive and non-interactive (API/MCP) sessions
+- **Skills system** — `riva skills` tracks slash-command workflows across sessions with usage count, success rate, backtrack rate, and avg token cost; shareable across agents; discoverable from Claude Code commands and Kiro hooks/specs
 - **OpenTelemetry export** — `riva otel` pushes metrics, logs, and traces to any OTel-compatible backend (Datadog, Grafana, Jaeger) via OTLP
 - **Boundary monitoring** — continuous policy evaluation every poll cycle — flag violations for file access, network connections, process trees, and privilege
 - **Compliance audit log** — tamper-evident JSONL log with HMAC chain, CEF export for SIEMs, integrity verification via `riva audit verify`
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
-- **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, and forensic drill-in
+- **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, forensic drill-in, and Skills tab
+- **MCP tool description** — `riva --mcp-help` outputs structured Markdown so any AI agent can understand how to use riva as a tool
 - **Framework-agnostic** — works across multiple agent frameworks and custom agents
 - **Local-first** — no cloud, no telemetry, no hidden data flows
 
@@ -86,6 +88,7 @@ Riva ships with built-in detectors for these agent frameworks:
 | Framework | Binary / Process | Config Dir | API Domain |
 |-----------|-----------------|------------|------------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude` | `~/.claude` | api.anthropic.com |
+| [Kiro](https://kiro.aws) | `kiro` (Electron) | `~/.kiro` | api.kiro.aws |
 | [Codex CLI](https://github.com/openai/codex) | `codex` | `~/.codex` | api.openai.com |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `gemini` | `~/.gemini` | generativelanguage.googleapis.com |
 | [OpenClaw](https://github.com/openclaw) | `openclaw`, `clawdbot` | `~/.openclaw` | varies |
@@ -279,6 +282,41 @@ riva forensic trends --limit 50 --json    # JSON output
 
 Session identifiers: `latest`, a session slug (e.g. `witty-shimmying-haven`), a UUID prefix, or a full UUID.
 
+### `riva skills`
+
+Track reusable agent workflows (slash commands, tool sequences) with forensic stats.
+
+```bash
+riva skills list                        # All skills with usage count, success rate, avg tokens
+riva skills list --agent claude         # Filter by agent
+riva skills list --json                 # JSON output
+riva skills scan                        # Parse recent sessions and record invocations
+riva skills scan --all-sessions         # Process all historical sessions
+riva skills stats /commit               # Per-skill breakdown
+riva skills add "deploy"                # Create a skill in the global registry
+riva skills share /commit --to cursor   # Mark shared, reassign agent
+riva skills export skills.toml          # Export all skills to TOML
+riva skills import skills.toml          # Import skills from TOML (deduped by id)
+```
+
+Skills are defined in `~/.riva/skills.toml` (global) or `.riva/skills.toml` (workspace):
+
+```toml
+[skill.commit]
+name = "commit"
+description = "Stage and commit with a conventional commit message"
+agent = "Claude Code"
+invocation = "/commit"
+tags = ["git", "workflow"]
+shared = true
+```
+
+Riva auto-discovers skills from agent-specific sources:
+- **Claude Code** — `~/.claude/commands/*.md` and per-project `commands/` dirs
+- **Kiro** — `~/.kiro/hooks/*.md` (tagged `hook`) and `~/.kiro/specs/*.md` (tagged `spec`)
+
+Slash commands (e.g. `/commit`, `/review-pr`) in session JSONL are automatically detected and linked to skill invocations during `riva skills scan`.
+
 ### `riva otel`
 
 OpenTelemetry export — push metrics, logs, and traces to any OTel-compatible backend.
@@ -445,6 +483,7 @@ A warning is printed when binding to a non-localhost address.
 | `GET /api/forensic/sessions` | Forensic session list (cached 30s) |
 | `GET /api/forensic/session/<id>` | Full parsed session detail |
 | `GET /api/forensic/trends` | Cross-session aggregate trends (cached 30s) |
+| `GET /api/skills` | All skills with forensic stats (cached 30s) |
 
 ### Authentication
 

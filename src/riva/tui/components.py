@@ -437,6 +437,71 @@ def build_forensic_panel(sessions: list[dict] | None = None) -> Panel:
     )
 
 
+def build_skills_panel(skills: list | None = None) -> Panel:
+    """Build a panel showing skills with their forensic stats."""
+    if not skills:
+        return Panel(
+            "[dim]No skills found. Define skills in [bold].riva/skills.toml[/bold] "
+            "or run [bold]riva skills scan[/bold] to discover agent commands.[/dim]",
+            title="Skills",
+            title_align="left",
+            border_style="dim",
+            expand=True,
+        )
+
+    table = Table(expand=True, box=None, padding=(0, 1), show_header=True, header_style="bold dim")
+    table.add_column("Skill", style="bold white", min_width=16)
+    table.add_column("Agent", min_width=12)
+    table.add_column("Invocation", min_width=12)
+    table.add_column("Uses", justify="right", min_width=5)
+    table.add_column("Success%", justify="right", min_width=9)
+    table.add_column("Backtracks", justify="right", min_width=11)
+    table.add_column("Avg Tokens", justify="right", min_width=10)
+    table.add_column("Last Used", min_width=12)
+    table.add_column("Shared", min_width=7)
+
+    for skill in skills:
+        stats = getattr(skill, "forensic_stats", None)
+        if stats and stats.usage_count > 0:
+            sr = stats.success_rate
+            success_style = "bold green" if sr >= 0.8 else "bold yellow" if sr >= 0.5 else "bold red"
+            success_str = Text(f"{sr:.0%}", style=success_style)
+            uses_str = str(stats.usage_count)
+            backtracks_str = str(stats.backtrack_count)
+            tokens_str = f"{stats.avg_tokens:,.0f}"
+            last_used = (stats.last_used or "")[:10]
+        else:
+            success_str = Text("—", style="dim")
+            uses_str = "0"
+            backtracks_str = "—"
+            tokens_str = "—"
+            last_used = "—"
+
+        agent = getattr(skill, "display_agent", skill.agent or "shared")
+        invocation = getattr(skill, "invocation", None) or skill.name
+        shared = Text("✓", style="cyan") if getattr(skill, "shared", False) else Text("—", style="dim")
+
+        table.add_row(
+            skill.name,
+            agent,
+            invocation,
+            uses_str,
+            success_str,
+            backtracks_str,
+            tokens_str,
+            last_used,
+            shared,
+        )
+
+    return Panel(
+        table,
+        title=f"Skills ({len(skills)})",
+        title_align="left",
+        border_style="magenta",
+        expand=True,
+    )
+
+
 def build_security_panel(audit_results: list | None = None) -> Panel:
     """Build a security audit summary panel."""
     if not audit_results:

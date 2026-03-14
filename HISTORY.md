@@ -1,5 +1,51 @@
 # Release History
 
+## v0.3.11 (2026-03-13)
+
+### Skills System
+
+- **New `riva skills` command group** — define, track, and share reusable agent workflows (slash commands, tool sequences)
+  - `riva skills list` — table of all skills with forensic stats (uses, success rate, backtrack rate, avg tokens)
+  - `riva skills scan [--all-sessions]` — parse session JSONL logs and record skill invocations to SQLite
+  - `riva skills stats SKILL_ID` — detailed per-skill breakdown
+  - `riva skills add NAME` — create a skill in the global registry
+  - `riva skills share SKILL_ID [--to AGENT]` — mark a skill as shared across agents
+  - `riva skills export FILE / riva skills import FILE` — TOML round-trip
+
+- **TOML-based skill definitions** — `~/.riva/skills.toml` (global) and `.riva/skills.toml` (workspace)
+- **Forensic linkage** — slash-command patterns (e.g. `/commit`) in session JSONL are automatically detected and linked to skill invocations; success rate, backtrack rate, and token cost are computed per skill
+- **Agent skill discovery** — `parse_skills()` on each detector: Claude Code reads `~/.claude/commands/*.md`; Kiro reads `~/.kiro/hooks/` and `~/.kiro/specs/`
+
+### Kiro Agent Support
+
+- **New `KiroDetector`** — detects and monitors [Kiro](https://kiro.aws), AWS's AI-powered IDE
+- Matches Electron-based process via binary name, exe path, and cmdline
+- Parses `~/.kiro/settings.json`, `auth.json`, `mcp.json`, hooks count, and steering file count
+- Discovers skills from `~/.kiro/hooks/*.md` (tagged `hook`) and `~/.kiro/specs/*.md` (tagged `spec`)
+
+### TUI — Skills Tab
+
+- **Tab switching in `riva watch`** — press `1`/`m` for Main, `2`/`s` for Skills
+- **Skills tab** shows full skills table with forensic stats per skill; hint bar with common skill commands
+- Non-blocking keypress reader via `termios`/`tty`/`select` in a background daemon thread
+
+### Web Dashboard — Skills Tab
+
+- **New Skills tab** in the web sidebar (star icon)
+- Skills table with columns: Skill, Agent, Invocation, Uses, Success%, Backtracks, Avg Tokens, Last Used
+- Success% color-coded: green ≥80%, yellow 50–80%, red <50%; shared badge; tag chips
+- New `/api/skills` endpoint (30s cache) — returns all skills with forensic stats attached
+
+### Forensics — Non-Interactive Session Fix
+
+- **Fixed missing turns in non-interactive sessions** — `claude -p "…"`, headless scripts, and MCP tool calls store user messages as structured content blocks (`[{"type": "text", "text": "..."}]`) rather than plain strings; the parser now handles both formats so all turns, actions, and token counts appear correctly in forensics
+
+### CLI
+
+- **`riva --mcp-help`** — prints structured Markdown describing all riva commands, options, and usage patterns so any AI agent can understand how to use riva as a tool (suitable for MCP tool descriptions or skills.md)
+- **`riva --no-ping`** — skip the automatic hub ping for a single invocation
+- **Auto-ping on every command** — background hub ping now fires on all `riva` subcommands (not just `scan`/`watch`); uses a daemon thread so it never delays the command; only fires if consent was previously given
+
 ## v0.3.10 (2026-03-08)
 
 ### Web Dashboard

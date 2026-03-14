@@ -56,6 +56,7 @@ _BUILTIN_MODULES = [
     "riva.agents.continue_dev",
     "riva.agents.cline",
     "riva.agents.opencode",
+    "riva.agents.kiro",
 ]
 
 # Entry-point group that third-party packages can use in their pyproject.toml:

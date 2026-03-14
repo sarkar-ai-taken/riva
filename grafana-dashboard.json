@@ -76,7 +76,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "riva_scan_total_total"
+          "expr": "riva_scan_total"
         }
       ],
       "title": "Total Scans",
@@ -115,7 +115,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "riva_agent_detected_total_total",
+          "expr": "riva_agent_detected_total",
           "legendFormat": "{{riva_agent_name}}"
         }
       ],
