@@ -5,6 +5,10 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from riva.core.skills import Skill
 
 _DEFAULT_DB_PATH = Path.home() / ".config" / "riva" / "riva.db"
 _DEFAULT_RETENTION_DAYS = 7
@@ -114,6 +118,36 @@ class RivaStorage:
                 cpu_percent REAL DEFAULT 0.0,
                 memory_mb REAL DEFAULT 0.0
             );
+
+            CREATE TABLE IF NOT EXISTS skills (
+                id TEXT NOT NULL,
+                workspace TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                agent TEXT,
+                invocation TEXT,
+                tags TEXT DEFAULT '[]',
+                shared INTEGER DEFAULT 0,
+                source_agent TEXT,
+                created_at REAL,
+                PRIMARY KEY (id, workspace)
+            );
+
+            CREATE TABLE IF NOT EXISTS skill_invocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_id TEXT NOT NULL,
+                workspace TEXT NOT NULL DEFAULT '',
+                session_id TEXT,
+                agent TEXT,
+                timestamp TEXT,
+                had_backtrack INTEGER DEFAULT 0,
+                token_count INTEGER DEFAULT 0,
+                action_count INTEGER DEFAULT 0,
+                success INTEGER DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill
+                ON skill_invocations(skill_id, workspace);
         """)
         conn.commit()
 
@@ -499,6 +533,133 @@ class RivaStorage:
         conn.execute("DELETE FROM snapshots WHERE timestamp < ?", (cutoff,))
         conn.execute("DELETE FROM audit_events WHERE timestamp < ?", (cutoff,))
         conn.execute("DELETE FROM orphan_processes WHERE detected_at < ?", (cutoff,))
+        conn.commit()
+
+    # --- Skills -----------------------------------------------------------
+
+    def upsert_skill(self, skill: "Skill") -> None:
+        """Insert or replace a skill definition."""
+        import json
+
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT OR REPLACE INTO skills
+               (id, workspace, name, description, agent, invocation, tags,
+                shared, source_agent, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                skill.id,
+                skill.workspace or "",
+                skill.name,
+                skill.description,
+                skill.agent,
+                skill.invocation,
+                json.dumps(skill.tags),
+                1 if skill.shared else 0,
+                skill.source_agent,
+                skill.created_at,
+            ),
+        )
+        conn.commit()
+
+    def record_skill_invocation(
+        self,
+        *,
+        skill_id: str,
+        workspace: str = "",
+        session_id: str | None = None,
+        agent: str | None = None,
+        timestamp: str | None = None,
+        had_backtrack: bool = False,
+        token_count: int = 0,
+        action_count: int = 0,
+        success: bool = True,
+    ) -> None:
+        """Record a single skill invocation from a forensic session."""
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO skill_invocations
+               (skill_id, workspace, session_id, agent, timestamp,
+                had_backtrack, token_count, action_count, success)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                skill_id,
+                workspace,
+                session_id,
+                agent,
+                timestamp,
+                1 if had_backtrack else 0,
+                token_count,
+                action_count,
+                1 if success else 0,
+            ),
+        )
+        conn.commit()
+
+    def get_skills(self, workspace: str | None = None, agent: str | None = None) -> list[dict]:
+        """Retrieve skill definitions, optionally filtered."""
+        import json
+
+        conn = self._get_conn()
+        if workspace is not None and agent:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE workspace = ? AND agent = ? ORDER BY name",
+                (workspace, agent),
+            ).fetchall()
+        elif workspace is not None:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE workspace = ? ORDER BY name",
+                (workspace,),
+            ).fetchall()
+        elif agent:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE agent = ? ORDER BY name",
+                (agent,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM skills ORDER BY name").fetchall()
+
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["tags"] = json.loads(d.get("tags") or "[]")
+            except (ValueError, TypeError):
+                d["tags"] = []
+            result.append(d)
+        return result
+
+    def get_skill_invocations(self, skill_id: str, workspace: str = "") -> list[dict]:
+        """Retrieve all invocations for a skill."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM skill_invocations WHERE skill_id = ? AND workspace = ? ORDER BY timestamp DESC",
+            (skill_id, workspace),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_all_skill_invocations(self, workspace: str | None = None) -> list[dict]:
+        """Retrieve all skill invocations, optionally filtered by workspace."""
+        conn = self._get_conn()
+        if workspace is not None:
+            rows = conn.execute(
+                "SELECT * FROM skill_invocations WHERE workspace = ? ORDER BY timestamp DESC",
+                (workspace,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM skill_invocations ORDER BY timestamp DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_skill(self, skill_id: str, workspace: str = "") -> None:
+        """Delete a skill and its invocation history."""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM skills WHERE id = ? AND workspace = ?", (skill_id, workspace))
+        conn.execute(
+            "DELETE FROM skill_invocations WHERE skill_id = ? AND workspace = ?",
+            (skill_id, workspace),
+        )
         conn.commit()
 
     def close(self) -> None:

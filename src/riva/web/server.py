@@ -570,6 +570,69 @@ def create_app(auth_token: str | None = None) -> Flask:
 
         return jsonify({"configs": _cached("config", _fetch)})
 
+    @app.route("/api/skills")
+    def api_skills():
+        def _fetch():
+            from riva.core.skills import (
+                compute_forensic_stats,
+                load_global_skills,
+                load_workspace_skills,
+            )
+            from riva.core.workspace import find_workspace
+
+            all_skills: list = []
+            all_skills.extend(load_global_skills())
+
+            workspace_dir = find_workspace()
+            if workspace_dir:
+                all_skills.extend(load_workspace_skills(workspace_dir))
+
+            registry = _get_registry()
+            existing_ids = {s.id for s in all_skills}
+            for det in registry.detectors:
+                if det.is_installed():
+                    try:
+                        for sk in det.parse_skills():
+                            if sk.id not in existing_ids:
+                                all_skills.append(sk)
+                                existing_ids.add(sk.id)
+                    except Exception:
+                        pass
+
+            storage = _get_storage()
+            result = []
+            for sk in all_skills:
+                stats = None
+                if storage:
+                    try:
+                        invocations = storage.get_skill_invocations(sk.id, workspace=sk.workspace or "")
+                        stats = compute_forensic_stats(invocations)
+                    except Exception:
+                        pass
+                result.append({
+                    "id": sk.id,
+                    "name": sk.name,
+                    "description": sk.description,
+                    "agent": sk.agent,
+                    "invocation": sk.invocation,
+                    "tags": sk.tags,
+                    "shared": sk.shared,
+                    "workspace": sk.workspace,
+                    "forensic_stats": {
+                        "usage_count": stats.usage_count if stats else 0,
+                        "success_count": stats.success_count if stats else 0,
+                        "success_rate": round(stats.success_rate, 3) if stats else 0,
+                        "backtrack_count": stats.backtrack_count if stats else 0,
+                        "backtrack_rate": round(stats.backtrack_rate, 3) if stats else 0,
+                        "avg_tokens": stats.avg_tokens if stats else 0,
+                        "avg_actions": stats.avg_actions if stats else 0,
+                        "last_used": stats.last_used if stats else None,
+                    } if stats else None,
+                })
+            return result
+
+        return jsonify({"skills": _cached("skills", _fetch)})
+
     return app
 
 

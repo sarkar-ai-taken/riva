@@ -55,6 +55,7 @@ class Turn:
     git_branch: str | None = None
     cwd: str | None = None
     is_dead_end: bool = False
+    skill_id: str | None = None  # set when a skill invocation is detected in the prompt
 
     @property
     def total_tokens(self) -> int:
@@ -163,6 +164,51 @@ def _parse_ts(ts: str) -> datetime | None:
 
 def _unique(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
+
+
+_SKILL_PATTERN_CACHE: dict[str, str | None] = {}
+
+
+def _detect_skill_invocation(prompt: str) -> str | None:
+    """Return a skill id if the prompt looks like a known skill invocation.
+
+    Currently detects:
+    - Slash commands: /commit, /review-pr  → id = "commit", "review-pr"
+    - Future: keyword matching against loaded skills
+    """
+    stripped = prompt.lstrip()
+    if stripped.startswith("/"):
+        # Extract the command word (stop at space or newline)
+        word = stripped[1:].split()[0] if stripped[1:].split() else ""
+        if word:
+            # Normalise to slug: lowercase, strip trailing punctuation
+            return word.lower().rstrip(".,;:!?")
+    return None
+
+
+def extract_skill_invocations(session: ForensicSession) -> list[dict]:
+    """Return a list of skill invocation dicts derived from session turns.
+
+    Each dict has: skill_id, session_id, agent, timestamp, had_backtrack,
+    token_count, action_count, success.
+    """
+    invocations = []
+    for turn in session.turns:
+        if not turn.skill_id:
+            continue
+        invocations.append(
+            {
+                "skill_id": turn.skill_id,
+                "session_id": session.session_id,
+                "agent": session.agent,
+                "timestamp": turn.timestamp_start,
+                "had_backtrack": turn.is_dead_end,
+                "token_count": turn.total_tokens,
+                "action_count": len(turn.actions),
+                "success": not turn.is_dead_end,
+            }
+        )
+    return invocations
 
 
 _FAILURE_SIGNALS = (
@@ -367,22 +413,50 @@ def parse_session(file_path: Path | str) -> ForensicSession:
         role = message.get("role")
         content = message.get("content")
 
-        # --- User prompt (string content = actual human message) ---
-        if event_type == "user" and role == "user" and isinstance(content, str):
-            if current_turn is not None:
-                if timestamp:
-                    current_turn.timestamp_end = timestamp
-                session.turns.append(current_turn)
+        # --- User prompt ---
+        # Interactive mode: content is a plain string.
+        # Non-interactive / API mode: content is a list of blocks
+        #   e.g. [{"type": "text", "text": "..."}, ...]
+        # We handle both so sessions from `claude -p "…"` or MCP show up.
+        if event_type == "user" and role == "user":
+            prompt_text: str | None = None
+            if isinstance(content, str):
+                prompt_text = content.strip()
+            elif isinstance(content, list):
+                # Extract text from text-type blocks; skip tool_result blocks
+                # (those are handled below in the tool-result branch)
+                has_tool_result = any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
+                if not has_tool_result:
+                    parts = []
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            t = block.get("text", "").strip()
+                            if t:
+                                parts.append(t)
+                        elif isinstance(block, str):
+                            parts.append(block.strip())
+                    if parts:
+                        prompt_text = "\n".join(parts)
 
-            current_turn = Turn(
-                index=turn_index,
-                prompt=content.strip(),
-                timestamp_start=timestamp,
-                cwd=event.get("cwd"),
-                git_branch=event.get("gitBranch"),
-            )
-            turn_index += 1
-            continue
+            if prompt_text is not None:
+                if current_turn is not None:
+                    if timestamp:
+                        current_turn.timestamp_end = timestamp
+                    session.turns.append(current_turn)
+
+                current_turn = Turn(
+                    index=turn_index,
+                    prompt=prompt_text,
+                    timestamp_start=timestamp,
+                    cwd=event.get("cwd"),
+                    git_branch=event.get("gitBranch"),
+                    skill_id=_detect_skill_invocation(prompt_text),
+                )
+                turn_index += 1
+                continue
 
         # --- Tool result (user event with tool_result content blocks) ---
         if event_type == "user" and isinstance(content, list):

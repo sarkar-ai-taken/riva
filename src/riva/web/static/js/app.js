@@ -209,6 +209,17 @@
         } catch (e) {}
       }
 
+      // Fetch skills data when on skills tab
+      if (currentTab === 'skills') {
+        try {
+          var skRes = await fetch('/api/skills');
+          if (skRes.ok) {
+            var skData = await skRes.json();
+            renderSkills(skData.skills || []);
+          }
+        } catch (e) {}
+      }
+
       setConnection(true);
       updateTimestamp();
     } catch (e) {

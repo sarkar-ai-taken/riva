@@ -6,6 +6,11 @@ scan_interval = 2.0
 enabled = []
 disabled = []
 
+[boundary]
+enabled = true
+allowed_domains = ["api.anthropic.com", "*.anthropic.com"]
+denied_process_names = ["curl", "wget"]
+
 [hooks]
 enabled = true
 timeout = 30

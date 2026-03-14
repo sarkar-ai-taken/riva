@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from riva.agents.base import AgentDetector
+from riva.core.skills import Skill
 from riva.core.usage_stats import (
     DailyStats,
     ModelStats,
@@ -158,6 +159,71 @@ class ClaudeCodeDetector(AgentDetector):
             time_range_start=time_start,
             time_range_end=time_end,
         )
+
+    # ------------------------------------------------------------------
+    # Skills
+    # ------------------------------------------------------------------
+
+    def parse_skills(self) -> list[Skill]:
+        """Discover Claude Code custom slash commands as skills.
+
+        Reads:
+        1. ``~/.claude/commands/`` — global custom commands (Markdown files)
+        2. ``.claude/commands/`` in any project dir — project-scoped commands
+
+        Each ``.md`` file becomes one skill: filename stem = id/invocation,
+        first non-empty line of the file = description.
+        """
+        skills: list[Skill] = []
+
+        # Global commands
+        global_cmds = self.config_dir / "commands"
+        if global_cmds.is_dir():
+            skills.extend(self._read_command_dir(global_cmds, workspace=None))
+
+        # Project-level commands: scan known project dirs for .claude/commands/
+        projects_dir = self.config_dir / "projects"
+        if projects_dir.is_dir():
+            try:
+                for project_dir in projects_dir.iterdir():
+                    project_cmds = project_dir / "commands"
+                    if project_cmds.is_dir():
+                        skills.extend(
+                            self._read_command_dir(project_cmds, workspace=str(project_dir))
+                        )
+            except OSError:
+                pass
+
+        return skills
+
+    def _read_command_dir(self, cmd_dir: Path, workspace: str | None) -> list[Skill]:
+        skills: list[Skill] = []
+        try:
+            for md_file in sorted(cmd_dir.glob("*.md")):
+                skill_id = md_file.stem.lower().replace(" ", "-")
+                description = ""
+                try:
+                    for line in md_file.read_text(errors="replace").splitlines():
+                        line = line.strip().lstrip("#").strip()
+                        if line:
+                            description = line[:120]
+                            break
+                except OSError:
+                    pass
+
+                skills.append(
+                    Skill(
+                        id=skill_id,
+                        name=md_file.stem,
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=f"/{skill_id}",
+                        workspace=workspace,
+                    )
+                )
+        except OSError:
+            pass
+        return skills
 
     # ------------------------------------------------------------------
     # Configuration
