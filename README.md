@@ -61,21 +61,21 @@ It **observes agent behavior** but does not execute agent actions.
 
 ## Highlights
 
-- **Agent discovery** — detect locally running agents across 14 frameworks and growing
+- **Agent discovery** — detect locally running agents across 14 frameworks and growing (Claude Code, Kiro, Cursor, Cline, Windsurf, Continue.dev, Codex CLI, Gemini CLI, and more)
 - **Lifecycle visibility** — see when agents start, stop, crash, or hang
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
 - **Environment scanning** — detect exposed API keys in environment variables
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
 - **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics; works for both interactive and non-interactive (API/MCP) sessions
-- **Skills system** — `riva skills` tracks slash-command workflows across sessions with usage count, success rate, backtrack rate, and avg token cost; shareable across agents; discoverable from Claude Code commands and Kiro hooks/specs
+- **Skills system** — `riva skills` tracks workflows across sessions with usage count, success rate, backtrack rate, and avg token cost; discoverable from all agents (Claude Code commands/skills, Kiro hooks/specs, Cursor rules, Continue slash commands, Windsurf memories, Codex/Gemini instructions, Cline rules)
 - **OpenTelemetry export** — `riva otel` pushes metrics, logs, and traces to any OTel-compatible backend (Datadog, Grafana, Jaeger) via OTLP
 - **Boundary monitoring** — continuous policy evaluation every poll cycle — flag violations for file access, network connections, process trees, and privilege
 - **Compliance audit log** — tamper-evident JSONL log with HMAC chain, CEF export for SIEMs, integrity verification via `riva audit verify`
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
 - **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, forensic drill-in, and Skills tab
-- **MCP tool description** — `riva --mcp-help` outputs structured Markdown so any AI agent can understand how to use riva as a tool
+- **Skill description** — `riva --skill-help` outputs structured Markdown so any AI agent can use riva as a tool; invocable as an MCP skill
 - **Framework-agnostic** — works across multiple agent frameworks and custom agents
 - **Local-first** — no cloud, no telemetry, no hidden data flows
 
@@ -312,8 +312,17 @@ shared = true
 ```
 
 Riva auto-discovers skills from agent-specific sources:
-- **Claude Code** — `~/.claude/commands/*.md` and per-project `commands/` dirs
-- **Kiro** — `~/.kiro/hooks/*.md` (tagged `hook`) and `~/.kiro/specs/*.md` (tagged `spec`)
+
+| Agent | Skills concept | Source |
+|---|---|---|
+| Claude Code | Commands + installed skills | `~/.claude/commands/*.md`, `.claude/skills/*/SKILL.md` |
+| Kiro | Hooks + specs | `~/.kiro/hooks/*.md`, `~/.kiro/specs/*.md` |
+| Cursor | Project rules | `~/.cursor/rules/*.mdc`, `.cursor/rules/*.mdc` |
+| Continue.dev | Slash commands | `slashCommands[]` in `~/.continue/config.json` |
+| Windsurf | Memories + rules | `~/.codeium/windsurf/memories/*.md`, `.windsurfrules` |
+| Codex CLI | Instructions | `~/.codex/instructions.md`, `AGENTS.md` |
+| Gemini CLI | Instructions | `~/.gemini/GEMINI.md`, `GEMINI.md` |
+| Cline | Rules | `~/.clinerules`, `.clinerules` |
 
 Slash commands (e.g. `/commit`, `/review-pr`) in session JSONL are automatically detected and linked to skill invocations during `riva skills scan`.
 

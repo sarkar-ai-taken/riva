@@ -92,6 +92,41 @@ class ContinueDevDetector(AgentDetector):
         return config
 
 
+    def parse_skills(self) -> list:
+        """Discover Continue.dev slash commands as skills.
+
+        Reads slashCommands[] from ~/.continue/config.json.
+        Each entry has a name and description.
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+        config_json = self.config_dir / "config.json"
+        if not config_json.is_file():
+            return skills
+        try:
+            data = json.loads(config_json.read_text(errors="replace"))
+            for cmd in data.get("slashCommands", []):
+                if not isinstance(cmd, dict):
+                    continue
+                name = cmd.get("name", "").strip()
+                if not name:
+                    continue
+                skill_id = f"continue-{name.lower().replace(' ', '-')}"
+                skills.append(Skill(
+                    id=skill_id,
+                    name=name,
+                    description=cmd.get("description", "")[:120],
+                    agent=self.agent_name,
+                    invocation=f"/{name}",
+                    tags=["command"],
+                    workspace=None,
+                ))
+        except (json.JSONDecodeError, OSError):
+            pass
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return ContinueDevDetector()

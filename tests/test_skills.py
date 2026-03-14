@@ -497,6 +497,7 @@ class TestClaudeCodeParseSkills:
         from riva.agents.claude_code import ClaudeCodeDetector
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         det = ClaudeCodeDetector()
         skills = det.parse_skills()
         assert skills == []
@@ -505,6 +506,7 @@ class TestClaudeCodeParseSkills:
         from riva.agents.claude_code import ClaudeCodeDetector
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         commands_dir = tmp_path / ".claude" / "commands"
         commands_dir.mkdir(parents=True)
         (commands_dir / "commit.md").write_text("# Create a git commit\n\nThis skill commits staged changes.")
@@ -521,6 +523,7 @@ class TestClaudeCodeParseSkills:
         from riva.agents.claude_code import ClaudeCodeDetector
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         commands_dir = tmp_path / ".claude" / "commands"
         commands_dir.mkdir(parents=True)
         (commands_dir / "commit.md").write_text("Commit staged changes")
@@ -533,6 +536,7 @@ class TestClaudeCodeParseSkills:
         from riva.agents.claude_code import ClaudeCodeDetector
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         commands_dir = tmp_path / ".claude" / "commands"
         commands_dir.mkdir(parents=True)
         (commands_dir / "commit.md").write_text("# My commit skill\nMore details here.")
@@ -545,6 +549,7 @@ class TestClaudeCodeParseSkills:
         from riva.agents.claude_code import ClaudeCodeDetector
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         commands_dir = tmp_path / ".claude" / "commands"
         commands_dir.mkdir(parents=True)
         (commands_dir / "empty.md").write_text("")
@@ -617,6 +622,7 @@ class TestSkillsCLI:
 
     def test_skills_list_empty(self, tmp_path, monkeypatch):
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
         result = self.invoke("skills", "list")
         assert result.exit_code == 0
         assert "No skills found" in result.output

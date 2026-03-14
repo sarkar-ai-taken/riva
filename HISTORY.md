@@ -1,5 +1,29 @@
 # Release History
 
+## v0.3.12 (2026-03-13)
+
+### Skills — All Agents
+
+- **Skill discovery for all agents** — each agent now implements `parse_skills()` mapping its native concept to riva skills:
+  - **Cursor** — Project Rules (`~/.cursor/rules/*.mdc`, `.cursor/rules/*.mdc`), tagged `rule`
+  - **Continue.dev** — Slash Commands from `slashCommands[]` in `~/.continue/config.json`, tagged `command`
+  - **Windsurf** — Global memories (`~/.codeium/windsurf/memories/*.md`) and project `.windsurfrules`, tagged `memory`/`rule`
+  - **Codex CLI** — `~/.codex/instructions.md` and project `AGENTS.md`, tagged `instruction`
+  - **Gemini CLI** — `~/.gemini/GEMINI.md` and project `GEMINI.md`, tagged `instruction`
+  - **Cline** — `~/.clinerules` and project `.clinerules`, tagged `rule`
+- **Claude Code `skills/` directory** — now also scans `.claude/skills/*/SKILL.md` (installed skills with YAML frontmatter) in addition to `.claude/commands/*.md`; reads `name` and `description` from frontmatter
+- **Forensic `Skill` tool detection** — `parse_session()` now recognises `Skill` tool_use blocks in assistant turns and sets `skill_id` from `tool_input["skill"]`, so skill invocations appear in `riva skills scan` results
+
+### CLI
+
+- **Renamed `--mcp-help` → `--skill-help`** — more accurate name; same output (structured Markdown for AI agent consumption)
+- **Removed group-level auto-ping** — background hub ping now fires only in `riva watch`, `riva scan`, and `riva ping`; not on `stats`, `forensics`, `skills`, `audit`, and other read-only commands
+
+### Bug Fixes
+
+- Fixed tray binary not recompiling after `pip install riva` upgrade — version sidecar file (`~/.cache/riva/tray-mac.version`) now forces recompile on any version change
+- Fixed `__init__.py` version not matching `pyproject.toml` (was stuck at old version)
+
 ## v0.3.11 (2026-03-13)
 
 ### Skills System
@@ -42,7 +66,7 @@
 
 ### CLI
 
-- **`riva --mcp-help`** — prints structured Markdown describing all riva commands, options, and usage patterns so any AI agent can understand how to use riva as a tool (suitable for MCP tool descriptions or skills.md)
+- **`riva --skill-help`** — prints structured Markdown describing all riva commands, options, and usage patterns so any AI agent can understand how to use riva as a tool (suitable for MCP tool descriptions or skills.md)
 - **`riva --no-ping`** — skip the automatic hub ping for a single invocation
 - **Auto-ping on every command** — background hub ping now fires on all `riva` subcommands (not just `scan`/`watch`); uses a daemon thread so it never delays the command; only fires if consent was previously given
 

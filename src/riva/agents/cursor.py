@@ -129,6 +129,53 @@ class CursorDetector(AgentDetector):
             return None
 
 
+    def parse_skills(self) -> list:
+        """Discover Cursor Project Rules as skills.
+
+        Reads *.mdc files from:
+        - ~/.cursor/rules/  (global rules)
+        - .cursor/rules/ in cwd  (project-local rules)
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+        seen: set[str] = set()
+
+        def _read_rules_dir(rules_dir: Path, workspace: str | None) -> None:
+            if not rules_dir.is_dir():
+                return
+            try:
+                for f in sorted(rules_dir.glob("*.mdc")):
+                    skill_id = f"cursor-{f.stem.lower().replace(' ', '-')}"
+                    if skill_id in seen:
+                        continue
+                    seen.add(skill_id)
+                    description = ""
+                    try:
+                        for line in f.read_text(errors="replace").splitlines():
+                            stripped = line.strip().lstrip("#").strip()
+                            if stripped and not stripped.startswith("---"):
+                                description = stripped[:120]
+                                break
+                    except OSError:
+                        pass
+                    skills.append(Skill(
+                        id=skill_id,
+                        name=f.stem,
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["rule"],
+                        workspace=workspace,
+                    ))
+            except OSError:
+                pass
+
+        _read_rules_dir(self.config_dir / "rules", workspace=None)
+        _read_rules_dir(Path.cwd() / ".cursor" / "rules", workspace=str(Path.cwd()))
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return CursorDetector()

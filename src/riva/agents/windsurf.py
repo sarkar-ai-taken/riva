@@ -79,6 +79,69 @@ class WindsurfDetector(AgentDetector):
         return config
 
 
+    def parse_skills(self) -> list:
+        """Discover Windsurf global memories and local .windsurfrules as skills.
+
+        Reads:
+        - ~/.codeium/windsurf/memories/*.md  (global memories / persistent rules)
+        - .windsurfrules in cwd  (project-level rules file)
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+
+        # Global memories
+        memories_dir = self.config_dir / "windsurf" / "memories"
+        if memories_dir.is_dir():
+            try:
+                for f in sorted(memories_dir.glob("*.md")):
+                    skill_id = f"windsurf-{f.stem.lower().replace(' ', '-')}"
+                    description = ""
+                    try:
+                        for line in f.read_text(errors="replace").splitlines():
+                            stripped = line.strip().lstrip("#").strip()
+                            if stripped:
+                                description = stripped[:120]
+                                break
+                    except OSError:
+                        pass
+                    skills.append(Skill(
+                        id=skill_id,
+                        name=f.stem,
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["memory"],
+                        workspace=None,
+                    ))
+            except OSError:
+                pass
+
+        # Project .windsurfrules
+        rules_file = Path.cwd() / ".windsurfrules"
+        if rules_file.is_file():
+            try:
+                first_line = ""
+                for line in rules_file.read_text(errors="replace").splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        first_line = stripped[:120]
+                        break
+                skills.append(Skill(
+                    id="windsurf-project-rules",
+                    name=".windsurfrules",
+                    description=first_line,
+                    agent=self.agent_name,
+                    invocation=None,
+                    tags=["rule"],
+                    workspace=str(Path.cwd()),
+                ))
+            except OSError:
+                pass
+
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return WindsurfDetector()
