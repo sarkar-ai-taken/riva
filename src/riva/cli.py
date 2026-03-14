@@ -122,41 +122,11 @@ riva audit --json
 """
 
 
-def _background_ping() -> None:
-    """Fire-and-forget ping on every command if consent was given.
-
-    Skips silently if consent is not set or no agents are running.
-    Runs in a daemon thread so it never delays the command.
-    """
-    from riva.hub.config import get_consent
-
-    if not get_consent():
-        return
-
-    import threading
-
-    def _run() -> None:
-        try:
-            from riva.agents.registry import get_default_registry
-            from riva.core.monitor import ResourceMonitor
-            from riva.hub.client import ping_hub
-
-            registry = get_default_registry()
-            monitor = ResourceMonitor(registry=registry)
-            instances = monitor.scan_once()
-            ping_hub(instances)
-        except Exception:
-            pass
-
-    threading.Thread(target=_run, daemon=True).start()
-
-
 @click.group(invoke_without_command=True)
 @click.option("--version", is_flag=True, help="Show version and exit.")
-@click.option("--mcp-help", "mcp_help", is_flag=True, help="Print Markdown tool description for AI agent consumption.")
-@click.option("--no-ping", "no_ping", is_flag=True, help="Skip the automatic hub ping for this invocation.")
+@click.option("--skill-help", "skill_help", is_flag=True, help="Print Markdown tool description for AI agent consumption.")
 @click.pass_context
-def cli(ctx: click.Context, version: bool, mcp_help: bool, no_ping: bool) -> None:
+def cli(ctx: click.Context, version: bool, skill_help: bool) -> None:
     """Riva - AI Agent Command Center.
 
     Discover and monitor AI coding agents running on your machine.
@@ -165,12 +135,10 @@ def cli(ctx: click.Context, version: bool, mcp_help: bool, no_ping: bool) -> Non
         click.echo(f"riva {_get_version()}")
         ctx.exit()
         return
-    if mcp_help:
+    if skill_help:
         click.echo(_MCP_HELP)
         ctx.exit()
         return
-    if not no_ping:
-        _background_ping()
     if ctx.invoked_subcommand is None:
         ctx.invoke(watch)
 

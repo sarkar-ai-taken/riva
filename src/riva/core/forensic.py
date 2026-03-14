@@ -247,6 +247,10 @@ def _extract_input_summary(tool_name: str, tool_input: dict) -> str:
             return desc
         cmd = tool_input.get("command", "?")
         return cmd[:80] + ("..." if len(cmd) > 80 else "")
+    if tool_name == "Skill":
+        skill = tool_input.get("skill", "?")
+        args = tool_input.get("args", "")
+        return f"{skill} {args}".strip()[:80]
     if tool_name == "Task":
         return tool_input.get("description", tool_input.get("prompt", "?"))[:80]
     if tool_name in ("WebSearch", "WebFetch"):
@@ -529,6 +533,13 @@ def parse_session(file_path: Path | str) -> ForensicSession:
                     tool_name = block.get("name", "unknown")
                     tool_input = block.get("input", {})
                     tool_id = block.get("id", "")
+
+                    # Detect Skill tool invocations — set skill_id on the turn
+                    # The Skill tool is invoked with {"skill": "skill-name", ...}
+                    if tool_name == "Skill" and not current_turn.skill_id:
+                        skill_arg = tool_input.get("skill", "")
+                        if skill_arg:
+                            current_turn.skill_id = skill_arg.lower().replace(" ", "-")
 
                     action = Action(
                         tool_name=tool_name,

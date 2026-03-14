@@ -183,6 +183,65 @@ class CodexCLIDetector(AgentDetector):
         return config
 
 
+    def parse_skills(self) -> list:
+        """Discover Codex CLI instructions as a skill.
+
+        Reads ~/.codex/instructions.md (global system prompt / custom instructions).
+        Also checks AGENTS.md or similar files in cwd for project-level instructions.
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+
+        # Global instructions
+        instructions = self.config_dir / "instructions.md"
+        if instructions.is_file():
+            try:
+                description = ""
+                for line in instructions.read_text(errors="replace").splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        description = stripped[:120]
+                        break
+                skills.append(Skill(
+                    id="codex-instructions",
+                    name="instructions",
+                    description=description,
+                    agent=self.agent_name,
+                    invocation=None,
+                    tags=["instruction"],
+                    workspace=None,
+                ))
+            except OSError:
+                pass
+
+        # Project AGENTS.md (OpenAI convention for project-level instructions)
+        for fname in ("AGENTS.md", ".codex/instructions.md"):
+            agents_file = Path.cwd() / fname
+            if agents_file.is_file():
+                try:
+                    description = ""
+                    for line in agents_file.read_text(errors="replace").splitlines():
+                        stripped = line.strip().lstrip("#").strip()
+                        if stripped:
+                            description = stripped[:120]
+                            break
+                    skills.append(Skill(
+                        id=f"codex-project-{agents_file.stem.lower()}",
+                        name=agents_file.name,
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["instruction"],
+                        workspace=str(Path.cwd()),
+                    ))
+                except OSError:
+                    pass
+                break
+
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return CodexCLIDetector()

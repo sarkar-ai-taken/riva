@@ -78,6 +78,46 @@ class ClineDetector(AgentDetector):
         return config
 
 
+    def parse_skills(self) -> list:
+        """Discover Cline rules files as skills.
+
+        Reads:
+        - ~/.clinerules  (global custom instructions)
+        - .clinerules in cwd  (project-level rules)
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+
+        for f, workspace in [
+            (Path.home() / ".clinerules", None),
+            (Path.cwd() / ".clinerules", str(Path.cwd())),
+        ]:
+            if not f.is_file():
+                continue
+            try:
+                description = ""
+                for line in f.read_text(errors="replace").splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        description = stripped[:120]
+                        break
+                skill_id = "cline-rules" if workspace is None else "cline-project-rules"
+                skills.append(Skill(
+                    id=skill_id,
+                    name=".clinerules",
+                    description=description,
+                    agent=self.agent_name,
+                    invocation=None,
+                    tags=["rule"],
+                    workspace=workspace,
+                ))
+            except OSError:
+                pass
+
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return ClineDetector()

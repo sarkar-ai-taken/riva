@@ -52,6 +52,46 @@ class GeminiCLIDetector(AgentDetector):
         return config
 
 
+    def parse_skills(self) -> list:
+        """Discover Gemini CLI instruction files as skills.
+
+        Reads:
+        - ~/.gemini/GEMINI.md  (global system instructions)
+        - GEMINI.md in cwd  (project-level instructions)
+        """
+        from riva.core.skills import Skill
+
+        skills: list[Skill] = []
+
+        for f, workspace in [
+            (self.config_dir / "GEMINI.md", None),
+            (Path.cwd() / "GEMINI.md", str(Path.cwd())),
+        ]:
+            if not f.is_file():
+                continue
+            try:
+                description = ""
+                for line in f.read_text(errors="replace").splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        description = stripped[:120]
+                        break
+                skill_id = "gemini-instructions" if workspace is None else "gemini-project-instructions"
+                skills.append(Skill(
+                    id=skill_id,
+                    name="GEMINI.md",
+                    description=description,
+                    agent=self.agent_name,
+                    invocation=None,
+                    tags=["instruction"],
+                    workspace=workspace,
+                ))
+            except OSError:
+                pass
+
+        return skills
+
+
 def create_detector() -> AgentDetector:
     """Plugin entry point."""
     return GeminiCLIDetector()

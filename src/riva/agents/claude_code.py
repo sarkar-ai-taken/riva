@@ -165,38 +165,56 @@ class ClaudeCodeDetector(AgentDetector):
     # ------------------------------------------------------------------
 
     def parse_skills(self) -> list[Skill]:
-        """Discover Claude Code custom slash commands as skills.
+        """Discover Claude Code skills and custom commands.
 
         Reads:
-        1. ``~/.claude/commands/`` — global custom commands (Markdown files)
-        2. ``.claude/commands/`` in any project dir — project-scoped commands
-
-        Each ``.md`` file becomes one skill: filename stem = id/invocation,
-        first non-empty line of the file = description.
+        1. ``~/.claude/commands/`` — global custom slash commands (*.md)
+        2. ``.claude/commands/`` in project dirs — project-scoped commands
+        3. ``~/.claude/skills/*/SKILL.md`` — globally installed skills
+        4. ``.claude/skills/*/SKILL.md`` in local project dirs — local skills
         """
         skills: list[Skill] = []
+        seen_ids: set[str] = set()
 
-        # Global commands
+        def _add(new: list[Skill]) -> None:
+            for s in new:
+                if s.id not in seen_ids:
+                    skills.append(s)
+                    seen_ids.add(s.id)
+
+        # Global slash commands
         global_cmds = self.config_dir / "commands"
         if global_cmds.is_dir():
-            skills.extend(self._read_command_dir(global_cmds, workspace=None))
+            _add(self._read_command_dir(global_cmds, workspace=None))
 
-        # Project-level commands: scan known project dirs for .claude/commands/
+        # Global installed skills (~/.claude/skills/*/SKILL.md)
+        global_skills_dir = self.config_dir / "skills"
+        if global_skills_dir.is_dir():
+            _add(self._read_skills_dir(global_skills_dir, workspace=None))
+
+        # Project-level: scan known project dirs for .claude/commands/ and .claude/skills/
         projects_dir = self.config_dir / "projects"
         if projects_dir.is_dir():
             try:
                 for project_dir in projects_dir.iterdir():
                     project_cmds = project_dir / "commands"
                     if project_cmds.is_dir():
-                        skills.extend(
-                            self._read_command_dir(project_cmds, workspace=str(project_dir))
-                        )
+                        _add(self._read_command_dir(project_cmds, workspace=str(project_dir)))
+                    project_skills = project_dir / "skills"
+                    if project_skills.is_dir():
+                        _add(self._read_skills_dir(project_skills, workspace=str(project_dir)))
             except OSError:
                 pass
+
+        # Also check local .claude/skills/ relative to cwd (the common case)
+        local_skills = Path.cwd() / ".claude" / "skills"
+        if local_skills.is_dir():
+            _add(self._read_skills_dir(local_skills, workspace=str(Path.cwd())))
 
         return skills
 
     def _read_command_dir(self, cmd_dir: Path, workspace: str | None) -> list[Skill]:
+        """Read *.md files from a commands/ directory as slash-command skills."""
         skills: list[Skill] = []
         try:
             for md_file in sorted(cmd_dir.glob("*.md")):
@@ -219,6 +237,68 @@ class ClaudeCodeDetector(AgentDetector):
                         agent=self.agent_name,
                         invocation=f"/{skill_id}",
                         workspace=workspace,
+                        tags=["command"],
+                    )
+                )
+        except OSError:
+            pass
+        return skills
+
+    def _read_skills_dir(self, skills_dir: Path, workspace: str | None) -> list[Skill]:
+        """Read <name>/SKILL.md files from a skills/ directory.
+
+        Parses YAML-style frontmatter (--- block) for name and description.
+        Falls back to directory name and first content line if frontmatter absent.
+        """
+        skills: list[Skill] = []
+        try:
+            for skill_subdir in sorted(skills_dir.iterdir()):
+                if not skill_subdir.is_dir():
+                    continue
+                skill_file = skill_subdir / "SKILL.md"
+                if not skill_file.exists():
+                    continue
+
+                name = skill_subdir.name
+                description = ""
+                try:
+                    text = skill_file.read_text(errors="replace")
+                    lines = text.splitlines()
+                    # Parse YAML frontmatter
+                    if lines and lines[0].strip() == "---":
+                        for i, line in enumerate(lines[1:], 1):
+                            if line.strip() == "---":
+                                break
+                            if line.startswith("name:"):
+                                name = line.split(":", 1)[1].strip()
+                            elif line.startswith("description:"):
+                                description = line.split(":", 1)[1].strip()[:120]
+                    # Fall back to first non-empty content line
+                    if not description:
+                        in_front = lines and lines[0].strip() == "---"
+                        past_front = not in_front
+                        for line in lines:
+                            if in_front and line.strip() == "---" and past_front is False:
+                                past_front = True
+                                continue
+                            if past_front:
+                                stripped = line.strip().lstrip("#").strip()
+                                if stripped:
+                                    description = stripped[:120]
+                                    break
+                except OSError:
+                    pass
+
+                skill_id = skill_subdir.name.lower().replace(" ", "-")
+                skills.append(
+                    Skill(
+                        id=skill_id,
+                        name=name,
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        workspace=workspace,
+                        tags=["skill"],
                     )
                 )
         except OSError:
