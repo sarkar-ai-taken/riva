@@ -570,6 +570,28 @@ def create_app(auth_token: str | None = None) -> Flask:
 
         return jsonify({"configs": _cached("config", _fetch)})
 
+    @app.route("/api/open-file", methods=["POST"])
+    def api_open_file():
+        import subprocess
+        import platform
+        data = request.get_json(silent=True) or {}
+        path = data.get("path", "")
+        if not path:
+            return jsonify({"error": "missing path"}), 400
+        from pathlib import Path
+        if not Path(path).exists():
+            return jsonify({"error": "file not found"}), 404
+        try:
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", path])
+            elif platform.system() == "Windows":
+                subprocess.Popen(["start", path], shell=True)
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        return jsonify({"ok": True})
+
     @app.route("/api/skills")
     def api_skills():
         def _fetch():
@@ -618,6 +640,7 @@ def create_app(auth_token: str | None = None) -> Flask:
                     "tags": sk.tags,
                     "shared": sk.shared,
                     "workspace": sk.workspace,
+                    "file_path": sk.file_path,
                     "forensic_stats": {
                         "usage_count": stats.usage_count if stats else 0,
                         "success_count": stats.success_count if stats else 0,

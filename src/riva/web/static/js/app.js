@@ -281,6 +281,20 @@
     document.getElementById('sec-forensic-trends').style.display = 'block';
   };
 
+  /* --- Skill file open --- */
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.skill-link');
+    if (!link) return;
+    e.preventDefault();
+    var path = link.getAttribute('data-path');
+    if (!path) return;
+    fetch('/api/open-file', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path})
+    });
+  });
+
   /* --- Init --- */
   initSidebar();
   initTabs();

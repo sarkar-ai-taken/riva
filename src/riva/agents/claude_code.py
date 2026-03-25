@@ -192,24 +192,42 @@ class ClaudeCodeDetector(AgentDetector):
         if global_skills_dir.is_dir():
             _add(self._read_skills_dir(global_skills_dir, workspace=None))
 
-        # Project-level: scan known project dirs for .claude/commands/ and .claude/skills/
+        # Project-level: scan all known Claude Code workspaces by reading
+        # sessions-index.json in each project entry under ~/.claude/projects/.
+        # Each entry's sessions-index.json has a "projectPath" field pointing
+        # to the real workspace directory where .claude/commands/ and
+        # .claude/skills/ live.
+        workspace_paths: set[str] = set()
         projects_dir = self.config_dir / "projects"
         if projects_dir.is_dir():
             try:
                 for project_dir in projects_dir.iterdir():
-                    project_cmds = project_dir / "commands"
-                    if project_cmds.is_dir():
-                        _add(self._read_command_dir(project_cmds, workspace=str(project_dir)))
-                    project_skills = project_dir / "skills"
-                    if project_skills.is_dir():
-                        _add(self._read_skills_dir(project_skills, workspace=str(project_dir)))
+                    if not project_dir.is_dir():
+                        continue
+                    index_file = project_dir / "sessions-index.json"
+                    if index_file.exists():
+                        try:
+                            data = json.loads(index_file.read_text())
+                            for entry in data.get("entries", []):
+                                pp = entry.get("projectPath")
+                                if pp:
+                                    workspace_paths.add(pp)
+                        except (json.JSONDecodeError, OSError):
+                            pass
             except OSError:
                 pass
 
-        # Also check local .claude/skills/ relative to cwd (the common case)
-        local_skills = Path.cwd() / ".claude" / "skills"
-        if local_skills.is_dir():
-            _add(self._read_skills_dir(local_skills, workspace=str(Path.cwd())))
+        # Also include cwd so this works even before any sessions exist
+        workspace_paths.add(str(Path.cwd()))
+
+        for wp in workspace_paths:
+            workspace_dir = Path(wp)
+            proj_cmds = workspace_dir / ".claude" / "commands"
+            if proj_cmds.is_dir():
+                _add(self._read_command_dir(proj_cmds, workspace=wp))
+            proj_skills = workspace_dir / ".claude" / "skills"
+            if proj_skills.is_dir():
+                _add(self._read_skills_dir(proj_skills, workspace=wp))
 
         return skills
 
@@ -238,6 +256,7 @@ class ClaudeCodeDetector(AgentDetector):
                         invocation=f"/{skill_id}",
                         workspace=workspace,
                         tags=["command"],
+                        file_path=str(md_file),
                     )
                 )
         except OSError:
@@ -266,7 +285,7 @@ class ClaudeCodeDetector(AgentDetector):
                     lines = text.splitlines()
                     # Parse YAML frontmatter
                     if lines and lines[0].strip() == "---":
-                        for i, line in enumerate(lines[1:], 1):
+                        for line in lines[1:]:
                             if line.strip() == "---":
                                 break
                             if line.startswith("name:"):
@@ -299,6 +318,7 @@ class ClaudeCodeDetector(AgentDetector):
                         invocation=None,
                         workspace=workspace,
                         tags=["skill"],
+                        file_path=str(skill_file),
                     )
                 )
         except OSError:
