@@ -1,5 +1,14 @@
 # Release History
 
+## v0.3.13 (2026-03-24)
+
+### New Agent: Strands
+
+- **New `StrandsDetector`** — detects and monitors [Strands Agents](https://strandsagents.com), AWS's open-source Python agent SDK
+- Matches Python processes with `strands` in the command line
+- Parses `~/.strands/config.json` when present
+- API domain: `bedrock-runtime.amazonaws.com`
+
 ## v0.3.12 (2026-03-13)
 
 ### Skills — All Agents

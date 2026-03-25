@@ -51,6 +51,7 @@ class Skill:
     workspace: str | None = None     # workspace path; None = global
     created_at: str | None = None
     forensic_stats: SkillForensicStats = field(default_factory=SkillForensicStats)
+    file_path: str | None = None  # absolute path to the source file, for click-to-open
     extra: dict = field(default_factory=dict)
 
     @property

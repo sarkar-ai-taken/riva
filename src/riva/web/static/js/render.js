@@ -464,8 +464,11 @@ function renderSkills(skills) {
     var lastUsed = st.last_used ? st.last_used.substring(0, 10) : '—';
     var tags = (sk.tags || []).map(function(t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
     var shared = sk.shared ? '<span class="tag shared">shared</span>' : '';
+    var nameCell = sk.file_path
+      ? '<a class="skill-link" href="#" data-path="' + esc(sk.file_path) + '" title="' + esc(sk.file_path) + '">' + esc(sk.name) + '</a>'
+      : '<span class="skill-name">' + esc(sk.name) + '</span>';
     return '<tr>' +
-      '<td><span class="skill-name">' + esc(sk.name) + '</span>' + (tags ? ' ' + tags : '') + (shared ? ' ' + shared : '') + '</td>' +
+      '<td>' + nameCell + (tags ? ' ' + tags : '') + (shared ? ' ' + shared : '') + '</td>' +
       '<td>' + esc(sk.agent || 'shared') + '</td>' +
       '<td class="mono">' + esc(sk.invocation || sk.name) + '</td>' +
       '<td class="num">' + uses + '</td>' +

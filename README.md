@@ -61,7 +61,7 @@ It **observes agent behavior** but does not execute agent actions.
 
 ## Highlights
 
-- **Agent discovery** — detect locally running agents across 14 frameworks and growing (Claude Code, Kiro, Cursor, Cline, Windsurf, Continue.dev, Codex CLI, Gemini CLI, and more)
+- **Agent discovery** — detect locally running agents across 15 frameworks and growing (Claude Code, Kiro, Cursor, Cline, Windsurf, Continue.dev, Codex CLI, Gemini CLI, Strands, and more)
 - **Lifecycle visibility** — see when agents start, stop, crash, or hang
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency

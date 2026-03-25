@@ -85,6 +85,7 @@ class GeminiCLIDetector(AgentDetector):
                     invocation=None,
                     tags=["instruction"],
                     workspace=workspace,
+                    file_path=str(f),
                 ))
             except OSError:
                 pass
