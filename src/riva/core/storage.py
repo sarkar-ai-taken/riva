@@ -148,6 +148,28 @@ class RivaStorage:
 
             CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill
                 ON skill_invocations(skill_id, workspace);
+
+            CREATE TABLE IF NOT EXISTS hook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                tool_input TEXT,
+                tool_output TEXT,
+                success INTEGER DEFAULT 1,
+                duration_ms INTEGER,
+                metadata TEXT,
+                received_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hook_events_agent_ts
+                ON hook_events(agent_name, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_hook_events_session
+                ON hook_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_hook_events_type
+                ON hook_events(event_type);
         """)
         conn.commit()
 
@@ -513,6 +535,97 @@ class RivaStorage:
 
         return results
 
+    def record_hook_event(
+        self,
+        *,
+        agent_name: str,
+        session_id: str,
+        event_type: str,
+        timestamp: float,
+        tool_name: str | None = None,
+        tool_input: dict | None = None,
+        tool_output: str | None = None,
+        success: bool = True,
+        duration_ms: int | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """Record a hook event (from Claude Code hooks, JSONL tail, or OTLP)."""
+        import json
+
+        # Defensive: coerce non-dict values to None rather than crashing json.dumps
+        if tool_input is not None and not isinstance(tool_input, dict):
+            tool_input = None
+        if metadata is not None and not isinstance(metadata, dict):
+            metadata = None
+
+        conn = self._get_conn()
+        cursor = conn.execute(
+            """INSERT INTO hook_events
+               (agent_name, session_id, event_type, tool_name, timestamp,
+                tool_input, tool_output, success, duration_ms, metadata, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                agent_name,
+                session_id,
+                event_type,
+                tool_name,
+                timestamp,
+                json.dumps(tool_input) if tool_input is not None else None,
+                (tool_output[:5000] if tool_output else None),
+                1 if success else 0,
+                duration_ms,
+                json.dumps(metadata) if metadata is not None else None,
+                time.time(),
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_hook_events(
+        self,
+        agent_name: str | None = None,
+        session_id: str | None = None,
+        event_type_prefix: str | None = None,
+        hours: float = 1.0,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Retrieve hook events, optionally filtered."""
+        import json
+
+        conn = self._get_conn()
+        cutoff = time.time() - (hours * 3600)
+        query = "SELECT * FROM hook_events WHERE received_at > ?"
+        params: list = [cutoff]
+
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        if session_id:
+            query += " AND session_id = ?"
+            params.append(session_id)
+        if event_type_prefix:
+            query += " AND event_type LIKE ?"
+            params.append(f"{event_type_prefix}%")
+
+        query += " ORDER BY received_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            for field in ("tool_input", "metadata"):
+                raw = d.get(field)
+                if raw:
+                    try:
+                        d[field] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        d[field] = {}
+                else:
+                    d[field] = {}
+            result.append(d)
+        return result
+
     def cleanup(self, retention_days: int = _DEFAULT_RETENTION_DAYS) -> None:
         """Remove data older than retention_days."""
         conn = self._get_conn()
@@ -533,6 +646,7 @@ class RivaStorage:
         conn.execute("DELETE FROM snapshots WHERE timestamp < ?", (cutoff,))
         conn.execute("DELETE FROM audit_events WHERE timestamp < ?", (cutoff,))
         conn.execute("DELETE FROM orphan_processes WHERE detected_at < ?", (cutoff,))
+        conn.execute("DELETE FROM hook_events WHERE received_at < ?", (cutoff,))
         conn.commit()
 
     # --- Skills -----------------------------------------------------------
@@ -630,12 +744,23 @@ class RivaStorage:
         return result
 
     def get_skill_invocations(self, skill_id: str, workspace: str = "") -> list[dict]:
-        """Retrieve all invocations for a skill."""
+        """Retrieve all invocations for a skill.
+
+        Tries exact workspace match first.  For global skills (workspace=""),
+        falls back to matching by skill_id across all workspaces so that
+        invocations recorded under a specific workspace path are still visible.
+        """
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT * FROM skill_invocations WHERE skill_id = ? AND workspace = ? ORDER BY timestamp DESC",
             (skill_id, workspace),
         ).fetchall()
+        if not rows and workspace == "":
+            # Global skill — aggregate invocations from all workspaces
+            rows = conn.execute(
+                "SELECT * FROM skill_invocations WHERE skill_id = ? ORDER BY timestamp DESC",
+                (skill_id,),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def get_all_skill_invocations(self, workspace: str | None = None) -> list[dict]:

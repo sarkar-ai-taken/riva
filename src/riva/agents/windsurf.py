@@ -79,6 +79,23 @@ class WindsurfDetector(AgentDetector):
         return config
 
 
+    def write_skill(self, skill, workspace=None):
+        """Write a skill as a .windsurfrules section or a memory file."""
+        base = Path(workspace) if workspace else Path.cwd()
+        # Project-level: append to .windsurfrules
+        path = base / ".windsurfrules"
+
+        section = f"\n\n## {skill.name}\n\n{skill.description or ''}\n"
+
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            if f"## {skill.name}" in existing:
+                return path
+            path.write_text(existing.rstrip() + section, encoding="utf-8")
+        else:
+            path.write_text(f"# Windsurf Rules{section}", encoding="utf-8")
+        return path
+
     def parse_skills(self) -> list:
         """Discover Windsurf global memories and local .windsurfrules as skills.
 

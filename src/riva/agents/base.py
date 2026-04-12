@@ -108,6 +108,14 @@ class AgentDetector(ABC):
         """Parse skills/commands defined for this agent. Returns ``[]`` by default."""
         return []
 
+    def write_skill(self, skill: "Skill", workspace: Path | None = None) -> Path:
+        """Write a skill to this agent's native format at *workspace*.
+
+        Returns the path of the written file.  Raises ``NotImplementedError``
+        if the agent does not support skill export.
+        """
+        raise NotImplementedError(f"{self.agent_name} does not support skill export")
+
     def build_instance(
         self,
         *,

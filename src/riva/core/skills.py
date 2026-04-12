@@ -158,6 +158,71 @@ def export_skills_toml(skills: list[Skill]) -> str:
     return "\n".join(lines)
 
 
+def export_skill_to_agent(
+    skill_name: str,
+    target_workspace: str,
+    source_agent: str | None = None,
+    target_agent: str | None = None,
+) -> tuple[bool, str]:
+    """Export a skill to a target workspace in the target agent's native format.
+
+    Returns (success, message).
+    """
+    from riva.agents.registry import get_default_registry
+
+    registry = get_default_registry()
+
+    # Collect all skills from all agents
+    matches: list[tuple[str, "Skill"]] = []
+    for det in registry.detectors:
+        if not det.is_installed():
+            continue
+        try:
+            for sk in det.parse_skills():
+                if sk.id == skill_name or sk.name == skill_name:
+                    matches.append((det.agent_name, sk))
+        except Exception:
+            pass
+
+    if not matches:
+        return False, f"Skill '{skill_name}' not found in any agent."
+
+    # Filter by source agent if specified
+    if source_agent:
+        filtered = [(a, s) for a, s in matches if a.lower().replace(" ", "-") == source_agent.lower().replace(" ", "-") or a.lower() == source_agent.lower()]
+        if not filtered:
+            agents = ", ".join(sorted(set(a for a, _ in matches)))
+            return False, f"Skill '{skill_name}' not found in {source_agent}. Found in: {agents}"
+        matches = filtered
+
+    if len(matches) > 1 and not source_agent:
+        agents = ", ".join(sorted(set(a for a, _ in matches)))
+        return False, f"Skill '{skill_name}' found in multiple agents: {agents}. Use --from to specify."
+
+    source_agent_name, skill = matches[0]
+
+    # Resolve target agent detector
+    target_agent_key = target_agent or source_agent_name
+    target_det = None
+    for det in registry.detectors:
+        det_key = det.agent_name.lower().replace(" ", "-")
+        if det_key == target_agent_key.lower().replace(" ", "-") or det.agent_name.lower() == target_agent_key.lower():
+            target_det = det
+            break
+
+    if target_det is None:
+        return False, f"Unknown target agent: {target_agent_key}"
+
+    try:
+        written_path = target_det.write_skill(skill, workspace=Path(target_workspace))
+    except NotImplementedError as exc:
+        return False, str(exc)
+    except OSError as exc:
+        return False, f"Failed to write: {exc}"
+
+    return True, f"Exported '{skill.name}' ({source_agent_name}) → {written_path}"
+
+
 def _toml_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 

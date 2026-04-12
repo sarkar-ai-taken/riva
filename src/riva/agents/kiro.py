@@ -78,6 +78,27 @@ class KiroDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
+    def write_skill(self, skill, workspace=None):
+        """Write a skill as a ~/.kiro/specs/<name>.md file."""
+        base = Path(workspace) if workspace else self.config_dir
+        specs_dir = base / "specs" if (base / "specs").parent == base else base / ".kiro" / "specs"
+        # Use ~/.kiro/specs/ for global, or workspace/.kiro/specs/ for project
+        if workspace:
+            specs_dir = Path(workspace) / ".kiro" / "specs"
+        else:
+            specs_dir = self.config_dir / "specs"
+        specs_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = skill.id.lower().replace(" ", "-") + ".md"
+        path = specs_dir / filename
+
+        lines = [f"# {skill.name}", ""]
+        if skill.description:
+            lines.append(skill.description)
+            lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
     def parse_skills(self) -> list[Skill]:
         """Discover Kiro skills from hooks and specs directories.
 

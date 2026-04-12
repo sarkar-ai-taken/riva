@@ -326,6 +326,31 @@ class ClaudeCodeDetector(AgentDetector):
         return skills
 
     # ------------------------------------------------------------------
+    # Skill export
+    # ------------------------------------------------------------------
+
+    def write_skill(self, skill, workspace: Path | None = None) -> Path:
+        """Write a skill as a .claude/commands/<name>.md file."""
+        base = Path(workspace) if workspace else Path.cwd()
+        commands_dir = base / ".claude" / "commands"
+        commands_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = skill.id.lower().replace(" ", "-") + ".md"
+        path = commands_dir / filename
+
+        lines: list[str] = []
+        if skill.description:
+            lines.append(f"# {skill.name}")
+            lines.append("")
+            lines.append(skill.description)
+        else:
+            lines.append(f"# {skill.name}")
+        lines.append("")
+
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
+    # ------------------------------------------------------------------
     # Configuration
     # ------------------------------------------------------------------
 

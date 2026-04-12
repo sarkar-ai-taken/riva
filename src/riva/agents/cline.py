@@ -78,6 +78,22 @@ class ClineDetector(AgentDetector):
         return config
 
 
+    def write_skill(self, skill, workspace=None):
+        """Append a skill section to .clinerules in the target workspace."""
+        base = Path(workspace) if workspace else Path.cwd()
+        path = base / ".clinerules"
+
+        section = f"\n\n## {skill.name}\n\n{skill.description or ''}\n"
+
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            if f"## {skill.name}" in existing:
+                return path
+            path.write_text(existing.rstrip() + section, encoding="utf-8")
+        else:
+            path.write_text(f"# Cline Rules{section}", encoding="utf-8")
+        return path
+
     def parse_skills(self) -> list:
         """Discover Cline rules files as skills.
 

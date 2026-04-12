@@ -1,5 +1,90 @@
 # Release History
 
+## v0.3.15 (2026-04-11)
+
+### Cross-agent Skill Export
+
+Share skills between workspaces and across AI agent frameworks — from the CLI or the web dashboard.
+
+- **New `riva skills send` command** — export a skill to any workspace in any agent's native format:
+  ```
+  riva skills send frontend-design --to /path/to/project2
+  riva skills send frontend-design --to /project2 --agent cursor
+  riva skills send commit --from claude-code --to /project2 --agent gemini-cli
+  ```
+- **`write_skill()` method on 7 agent detectors** — each agent knows how to write skills in its native format:
+  - Claude Code → `.claude/commands/<name>.md`
+  - Cursor → `.cursor/rules/<name>.mdc`
+  - Codex CLI → `AGENTS.md` (append section)
+  - Gemini CLI → `GEMINI.md` (append section)
+  - Kiro → `.kiro/specs/<name>.md`
+  - Cline → `.clinerules` (append section)
+  - Windsurf → `.windsurfrules` (append section)
+- **Ambiguity handling** — if multiple agents have a skill with the same name, `--from` is required; clear error message lists which agents have it
+- **Web dashboard: Export Skill modal** — each skill row has a **Send** button that opens a modal with target workspace path and target agent format dropdown
+- **New `POST /api/skills/send` endpoint** — JSON body with `skill_name`, `target_workspace`, optional `source_agent` and `target_agent`
+
+### Bug fix: Skills showing 0 uses
+
+- **Fixed `get_skill_invocations()` workspace mismatch** — global skills (workspace="") now aggregate invocations from all workspaces, so forensic stats correctly appear for skills discovered from `~/.claude/skills/` etc.
+
+---
+
+## v0.3.14 (2026-04-11)
+
+### Event Depth — Real-time Tool-call Visibility
+
+This release adds a new **event stream layer** to Riva, bridging the gap between process-level monitoring (Riva's traditional scope) and tool-call-level observability. Three complementary ingestion paths feed into a single unified `hook_events` store.
+
+#### Phase 1 — Claude Code hook ingestion
+
+- **New `riva hooks` command group** — install, uninstall, and check hook status for Claude Code
+  - `riva hooks install` — merges Riva hook entries into `~/.claude/settings.json` without disturbing existing hooks; registers 5 events: `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `Stop`
+  - `riva hooks uninstall` — cleanly removes Riva entries only
+  - `riva hooks status` — shows which events have Riva hooks installed
+- **New `POST /api/events` endpoint** — receives hook payloads from Claude Code (or any agent adapter) and persists them to SQLite; accepts JSON with `agent_name`, `session_id`, `event_type`, `tool_name`, `tool_input`, `tool_output`, `success`, `duration_ms`
+- **New `GET /api/events` endpoint** — query hook events with filters: `agent`, `session`, `type_prefix`, `hours`, `limit`
+- **New `hook_events` SQLite table** — 11-column schema unified across all three ingestion paths; 7-day retention; 3 indexes (agent+timestamp, session_id, event_type)
+- **New Events tab in TUI** — press `3` or `e` in `riva watch` to open the real-time event stream; shows the last 1 hour of tool calls from hooks, JSONL tail, and OTLP in a single scrollable view
+- **New hook script** — `src/riva/hooks/claude_code_hook.py` — invoked by Claude Code's hook system; reads stdin, maps to Riva's event schema, POSTs with a 3-second timeout; silent on server-not-found so it never blocks Claude Code
+
+#### Phase 2 — JSONL session file tail-watching
+
+- **New `SessionTailer`** (`src/riva/core/tailer.py`) — background thread that polls active session JSONL files every 5 seconds and streams new entries to storage as they are appended; no external dependencies (pure file position tracking)
+- Watches `~/.claude/projects/**/*.jsonl` (Claude Code) and `~/.cursor/projects/**/*.jsonl` (Cursor) out of the box; easily extensible to other agents
+- Parses `tool_use` / `tool_result` entries including nested content blocks; extracts tool name, input, output, and ISO timestamp
+- Bounded memory: evicts stale file state after 7 days / 5 000 tracked files
+- Automatically started and stopped by `ResourceMonitor`; active from both `riva watch` and `riva web start`
+
+#### Phase 4 — OTLP HTTP receiver
+
+- **Three new Flask endpoints** — `POST /otlp/v1/traces`, `/otlp/v1/metrics`, `/otlp/v1/logs`
+- Accepts both **protobuf** (`application/x-protobuf`) and **JSON** (`application/json`) OTLP format — any OTel-instrumented agent (LangGraph, CrewAI, AutoGen, custom) can push directly to Riva
+- 10 MB payload guard; events stored in the shared `hook_events` table tagged `otlp:trace` / `otlp:metric` / `otlp:log`
+- Auth token check extended to cover `/otlp/` prefix (same bearer token as `/api/`)
+
+#### TUI — Events tab
+
+- New tab key `3` / `e` added to the live dashboard alongside Main (`1`) and Skills (`2`)
+- `build_hook_events_panel()` component shows: timestamp, agent name, event type, tool name, success, duration
+- `riva watch` now initializes `RivaStorage` automatically so the event stream and JSONL tailer are active without running `riva web start`
+
+#### Web Dashboard — Events tab + Forensics linking
+
+- **New Events tab** in the web dashboard sidebar — real-time event stream with filter controls (agent, event type, time range) and 3-second auto-refresh
+- **Color-coded event types** — blue for hook events, yellow for JSONL tail, purple for OTLP
+- **Session ID deep-link** — clicking a session ID in the Events tab navigates directly to the Forensics tab with full session analysis (summary, patterns, timeline, files, decisions)
+- Auto-populates agent filter dropdown from observed events
+
+#### Generic hook adapter system
+
+- **New `AgentHookAdapter` registry** (`src/riva/hooks/adapters.py`) — each agent's hook support described as a config dict; adding a new agent requires no new files or CLI changes
+- **Generic hook script** (`src/riva/hooks/hook.py`) — handles all agents via `python -m riva.hooks.hook <agent> <event>`
+- **Backward-compatible** — `python -m riva.hooks.claude_code_hook` still works (thin shim)
+- **New CLI commands**: `riva hooks list` (show all adapters), positional agent arg (`riva hooks install claude-code`), `--all` flag for batch operations
+
+---
+
 ## v0.3.13 (2026-03-24)
 
 ### New Agent: Strands

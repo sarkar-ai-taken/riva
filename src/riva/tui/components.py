@@ -502,6 +502,49 @@ def build_skills_panel(skills: list | None = None) -> Panel:
     )
 
 
+def build_hook_events_panel(events: list[dict] | None = None, max_rows: int = 15) -> Panel:
+    """Build a real-time event stream panel (hook events, JSONL tail, OTLP)."""
+    from datetime import datetime
+
+    table = Table(
+        expand=True,
+        box=None,
+        padding=(0, 1),
+        show_header=True,
+        header_style="bold dim",
+    )
+    table.add_column("Time", style="dim white", min_width=8, no_wrap=True)
+    table.add_column("Agent", style="bold", min_width=11, no_wrap=True)
+    table.add_column("Type", min_width=14, no_wrap=True)
+    table.add_column("Tool", min_width=12, no_wrap=True)
+    table.add_column("OK", justify="center", min_width=3)
+    table.add_column("ms", justify="right", min_width=6)
+
+    if events:
+        for evt in events[:max_rows]:
+            ts = evt.get("timestamp") or evt.get("received_at", 0)
+            try:
+                time_str = datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S")
+            except (ValueError, TypeError, OSError):
+                time_str = "?"
+
+            agent = (evt.get("agent_name") or "?")[:11]
+            evt_type = (evt.get("event_type") or "?")[:14]
+            tool = (evt.get("tool_name") or "—")[:12]
+            ok = evt.get("success", 1)
+            ok_text = Text("✓", style="green") if ok else Text("✗", style="red")
+            dur = evt.get("duration_ms")
+            dur_str = f"{dur}" if dur is not None else "—"
+
+            table.add_row(time_str, agent, evt_type, tool, ok_text, dur_str)
+    else:
+        table.add_row("[dim]No events yet[/dim]", "", "", "", "", "")
+
+    count = len(events) if events else 0
+    title = f"Event Stream ({count})" if count else "Event Stream"
+    return Panel(table, title=title, title_align="left", border_style="bright_magenta", expand=True)
+
+
 def build_security_panel(audit_results: list | None = None) -> Panel:
     """Build a security audit summary panel."""
     if not audit_results:

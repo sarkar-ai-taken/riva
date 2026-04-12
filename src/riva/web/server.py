@@ -87,7 +87,7 @@ def create_app(auth_token: str | None = None) -> Flask:
 
         @app.before_request
         def check_auth_token():
-            if request.path.startswith("/api/"):
+            if request.path.startswith("/api/") or request.path.startswith("/otlp/"):
                 auth_header = request.headers.get("Authorization", "")
                 if auth_header != f"Bearer {auth_token}":
                     return jsonify({"error": "Unauthorized"}), 401
@@ -655,6 +655,406 @@ def create_app(auth_token: str | None = None) -> Flask:
             return result
 
         return jsonify({"skills": _cached("skills", _fetch)})
+
+    # ---- Skill export endpoint -------------------------------------------
+
+    @app.route("/api/skills/send", methods=["POST"])
+    def api_skills_send():
+        """Export a skill to a target workspace in an agent's native format."""
+        from riva.core.skills import export_skill_to_agent
+
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Expected JSON body"}), 400
+
+        skill_name = data.get("skill_name")
+        target_workspace = data.get("target_workspace")
+        if not skill_name or not target_workspace:
+            return jsonify({"error": "skill_name and target_workspace are required"}), 400
+
+        ok, msg = export_skill_to_agent(
+            skill_name=skill_name,
+            target_workspace=str(Path(target_workspace).resolve()),
+            source_agent=data.get("source_agent"),
+            target_agent=data.get("target_agent"),
+        )
+        if ok:
+            return jsonify({"ok": True, "message": msg})
+        return jsonify({"ok": False, "error": msg}), 400
+
+    # ---- Phase 1: Hook event ingestion -----------------------------------
+
+    @app.route("/api/events", methods=["POST"])
+    def api_events_ingest():
+        """Receive a hook event from the Claude Code hook script or any agent adapter."""
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Expected JSON body"}), 400
+
+        agent_name = str(data.get("agent_name") or "unknown")[:128]
+        session_id = str(data.get("session_id") or "unknown")[:256]
+        event_type = str(data.get("event_type") or "unknown")[:128]
+
+        if not agent_name or not session_id or not event_type:
+            return jsonify({"error": "agent_name, session_id, and event_type are required"}), 400
+
+        # Reject obviously invalid event_type values (allow known prefixes and hook names)
+        _valid_prefixes = ("jsonl:", "otlp:", "hook:")
+        _known_types = {
+            "SessionStart", "PreToolUse", "PostToolUse", "SubagentStop", "Stop",
+            "Error", "unknown",
+        }
+        if event_type not in _known_types and not any(event_type.startswith(p) for p in _valid_prefixes):
+            # Accept unknown types from future agents — just tag them instead of rejecting
+            event_type = f"hook:{event_type}"
+
+        # Parse timestamp — accept float (Unix) or ISO-8601 string
+        raw_ts = data.get("timestamp")
+        ts: float = time.time()
+        if isinstance(raw_ts, (int, float)):
+            ts = float(raw_ts)
+        elif isinstance(raw_ts, str):
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                ts = dt.timestamp()
+            except (ValueError, TypeError):
+                pass
+
+        tool_input = data.get("tool_input")
+        if not isinstance(tool_input, dict):
+            tool_input = None
+
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"error": "Storage not available"}), 503
+
+        try:
+            event_id = storage.record_hook_event(
+                agent_name=agent_name,
+                session_id=session_id,
+                event_type=event_type,
+                timestamp=ts,
+                tool_name=data.get("tool_name"),
+                tool_input=tool_input,
+                tool_output=data.get("tool_output"),
+                success=bool(data.get("success", True)),
+                duration_ms=data.get("duration_ms"),
+                metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        return jsonify({"ok": True, "event_id": event_id})
+
+    @app.route("/api/events", methods=["GET"])
+    def api_events_query():
+        """Query recent hook events (all sources: hooks, JSONL tail, OTLP)."""
+        storage = _get_storage()
+        if not storage:
+            return jsonify({"events": [], "error": "Storage not available"})
+
+        agent_name = request.args.get("agent")
+        session_id = request.args.get("session")
+        event_type_prefix = request.args.get("type_prefix")
+        hours = float(request.args.get("hours", 1.0))
+        limit = int(request.args.get("limit", 200))
+
+        events = storage.get_hook_events(
+            agent_name=agent_name,
+            session_id=session_id,
+            event_type_prefix=event_type_prefix,
+            hours=hours,
+            limit=limit,
+        )
+        return jsonify({"events": events, "timestamp": time.time()})
+
+    # ---- Phase 4: OTLP HTTP receiver ------------------------------------
+
+    def _otlp_accept() -> bool:
+        """Return True only if Content-Length is within the 10 MB safety limit."""
+        cl = request.content_length
+        return cl is None or cl <= 10 * 1024 * 1024
+
+    def _otlp_attrs_to_dict(attributes) -> dict:
+        """Convert a list of OTLP KeyValue attributes to a plain dict."""
+        result: dict = {}
+        for kv in attributes:
+            key = kv.key if hasattr(kv, "key") else kv.get("key", "")
+            # Protobuf AnyValue
+            if hasattr(kv, "value"):
+                v = kv.value
+                for field in ("string_value", "int_value", "double_value", "bool_value"):
+                    if v.HasField(field) if hasattr(v, "HasField") else False:
+                        result[key] = getattr(v, field)
+                        break
+                else:
+                    result[key] = str(v)
+            else:
+                # JSON format: {"key": "...", "value": {"stringValue": "..."}}
+                val = kv.get("value", {})
+                for json_field in ("stringValue", "intValue", "doubleValue", "boolValue"):
+                    if json_field in val:
+                        result[key] = val[json_field]
+                        break
+                else:
+                    result[key] = str(val)
+        return result
+
+    @app.route("/otlp/v1/traces", methods=["POST"])
+    def otlp_traces():
+        """OTLP HTTP trace receiver. Accepts protobuf or JSON."""
+        if not _otlp_accept():
+            return jsonify({"error": "Payload too large (max 10 MB)"}), 413
+
+        storage = _get_storage()
+        ct = request.content_type or ""
+
+        if "application/x-protobuf" in ct:
+            try:
+                from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+                    ExportTraceServiceRequest,
+                    ExportTraceServiceResponse,
+                )
+                req = ExportTraceServiceRequest()
+                req.ParseFromString(request.get_data())
+                for rs in req.resource_spans:
+                    svc = ""
+                    for kv in rs.resource.attributes:
+                        if kv.key == "service.name":
+                            svc = kv.value.string_value
+                            break
+                    for scope_spans in rs.scope_spans:
+                        for span in scope_spans.spans:
+                            trace_id_hex = span.trace_id.hex() if span.trace_id else ""
+                            if not trace_id_hex:
+                                continue  # skip spans with no trace_id
+                            if storage:
+                                try:
+                                    storage.record_hook_event(
+                                        agent_name=svc or "otlp",
+                                        session_id=trace_id_hex,
+                                        event_type="otlp:trace",
+                                        timestamp=span.start_time_unix_nano / 1e9 if span.start_time_unix_nano else time.time(),
+                                        tool_name=span.name or None,
+                                        metadata=_otlp_attrs_to_dict(span.attributes),
+                                    )
+                                except Exception:
+                                    pass
+                resp = ExportTraceServiceResponse()
+                return resp.SerializeToString(), 200, {"Content-Type": "application/x-protobuf"}
+            except ImportError:
+                return jsonify({"error": "Protobuf not available; use Content-Type: application/json"}), 415
+            except Exception as exc:
+                return jsonify({"error": f"Protobuf parse error: {exc}"}), 400
+
+        # JSON format
+        try:
+            body = request.get_json(force=True, silent=True) or {}
+        except Exception:
+            return jsonify({"error": "Invalid JSON"}), 400
+
+        for rs in body.get("resourceSpans", []):
+            svc = ""
+            for kv in rs.get("resource", {}).get("attributes", []):
+                if kv.get("key") == "service.name":
+                    svc = kv.get("value", {}).get("stringValue", "")
+            for scope_spans in rs.get("scopeSpans", []):
+                for span in scope_spans.get("spans", []):
+                    start_ns = int(span.get("startTimeUnixNano", 0) or 0)
+                    attrs: dict = {}
+                    for kv in span.get("attributes", []):
+                        key = kv.get("key", "")
+                        val = kv.get("value", {})
+                        for jf in ("stringValue", "intValue", "doubleValue", "boolValue"):
+                            if jf in val:
+                                attrs[key] = val[jf]
+                                break
+                    if storage:
+                        try:
+                            storage.record_hook_event(
+                                agent_name=svc or "otlp",
+                                session_id=span.get("traceId", "unknown"),
+                                event_type="otlp:trace",
+                                timestamp=start_ns / 1e9 if start_ns else time.time(),
+                                tool_name=span.get("name"),
+                                metadata=attrs,
+                            )
+                        except Exception:
+                            pass
+
+        return jsonify({"partialSuccess": {}}), 200
+
+    @app.route("/otlp/v1/metrics", methods=["POST"])
+    def otlp_metrics():
+        """OTLP HTTP metrics receiver. Accepts protobuf or JSON."""
+        if not _otlp_accept():
+            return jsonify({"error": "Payload too large (max 10 MB)"}), 413
+
+        storage = _get_storage()
+        ct = request.content_type or ""
+
+        if "application/x-protobuf" in ct:
+            try:
+                from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import (
+                    ExportMetricsServiceRequest,
+                    ExportMetricsServiceResponse,
+                )
+                req = ExportMetricsServiceRequest()
+                req.ParseFromString(request.get_data())
+                for rm in req.resource_metrics:
+                    svc = ""
+                    for kv in rm.resource.attributes:
+                        if kv.key == "service.name":
+                            svc = kv.value.string_value
+                            break
+                    for scope_metrics in rm.scope_metrics:
+                        for metric in scope_metrics.metrics:
+                            if storage:
+                                try:
+                                    storage.record_hook_event(
+                                        agent_name=svc or "otlp",
+                                        session_id=svc or "otlp",
+                                        event_type="otlp:metric",
+                                        timestamp=time.time(),
+                                        tool_name=metric.name,
+                                        metadata={"description": metric.description, "unit": metric.unit},
+                                    )
+                                except Exception:
+                                    pass
+                resp = ExportMetricsServiceResponse()
+                return resp.SerializeToString(), 200, {"Content-Type": "application/x-protobuf"}
+            except ImportError:
+                return jsonify({"error": "Protobuf not available; use Content-Type: application/json"}), 415
+            except Exception as exc:
+                return jsonify({"error": f"Protobuf parse error: {exc}"}), 400
+
+        # JSON format
+        try:
+            body = request.get_json(force=True, silent=True) or {}
+        except Exception:
+            return jsonify({"error": "Invalid JSON"}), 400
+
+        for rm in body.get("resourceMetrics", []):
+            svc = ""
+            for kv in rm.get("resource", {}).get("attributes", []):
+                if kv.get("key") == "service.name":
+                    svc = kv.get("value", {}).get("stringValue", "")
+            for scope_metrics in rm.get("scopeMetrics", []):
+                for metric in scope_metrics.get("metrics", []):
+                    if storage:
+                        try:
+                            storage.record_hook_event(
+                                agent_name=svc or "otlp",
+                                session_id=svc or "otlp",
+                                event_type="otlp:metric",
+                                timestamp=time.time(),
+                                tool_name=metric.get("name"),
+                                metadata={
+                                    "description": metric.get("description", ""),
+                                    "unit": metric.get("unit", ""),
+                                },
+                            )
+                        except Exception:
+                            pass
+
+        return jsonify({"partialSuccess": {}}), 200
+
+    @app.route("/otlp/v1/logs", methods=["POST"])
+    def otlp_logs():
+        """OTLP HTTP log receiver. Accepts protobuf or JSON."""
+        if not _otlp_accept():
+            return jsonify({"error": "Payload too large (max 10 MB)"}), 413
+
+        storage = _get_storage()
+        ct = request.content_type or ""
+
+        if "application/x-protobuf" in ct:
+            try:
+                from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import (
+                    ExportLogsServiceRequest,
+                    ExportLogsServiceResponse,
+                )
+                req = ExportLogsServiceRequest()
+                req.ParseFromString(request.get_data())
+                for rl in req.resource_logs:
+                    svc = ""
+                    for kv in rl.resource.attributes:
+                        if kv.key == "service.name":
+                            svc = kv.value.string_value
+                            break
+                    for scope_logs in rl.scope_logs:
+                        for log_record in scope_logs.log_records:
+                            body_str = ""
+                            try:
+                                if hasattr(log_record, "body") and log_record.body:
+                                    if hasattr(log_record.body, "HasField"):
+                                        try:
+                                            if log_record.body.HasField("string_value"):
+                                                body_str = log_record.body.string_value
+                                        except ValueError:
+                                            pass
+                                    elif hasattr(log_record.body, "string_value"):
+                                        body_str = log_record.body.string_value or ""
+                            except Exception:
+                                pass
+                            ts_ns = log_record.time_unix_nano or log_record.observed_time_unix_nano
+                            if storage:
+                                try:
+                                    storage.record_hook_event(
+                                        agent_name=svc or "otlp",
+                                        session_id=svc or "otlp",
+                                        event_type="otlp:log",
+                                        timestamp=ts_ns / 1e9 if ts_ns else time.time(),
+                                        tool_output=body_str[:2000] if body_str else None,
+                                        metadata=_otlp_attrs_to_dict(log_record.attributes),
+                                    )
+                                except Exception:
+                                    pass
+                resp = ExportLogsServiceResponse()
+                return resp.SerializeToString(), 200, {"Content-Type": "application/x-protobuf"}
+            except ImportError:
+                return jsonify({"error": "Protobuf not available; use Content-Type: application/json"}), 415
+            except Exception as exc:
+                return jsonify({"error": f"Protobuf parse error: {exc}"}), 400
+
+        # JSON format
+        try:
+            body = request.get_json(force=True, silent=True) or {}
+        except Exception:
+            return jsonify({"error": "Invalid JSON"}), 400
+
+        for rl in body.get("resourceLogs", []):
+            svc = ""
+            for kv in rl.get("resource", {}).get("attributes", []):
+                if kv.get("key") == "service.name":
+                    svc = kv.get("value", {}).get("stringValue", "")
+            for scope_logs in rl.get("scopeLogs", []):
+                for log_record in scope_logs.get("logRecords", []):
+                    ts_ns = int(log_record.get("timeUnixNano", 0) or 0)
+                    log_body = log_record.get("body", {}).get("stringValue", "")
+                    attrs: dict = {}
+                    for kv in log_record.get("attributes", []):
+                        key = kv.get("key", "")
+                        val = kv.get("value", {})
+                        for jf in ("stringValue", "intValue", "doubleValue", "boolValue"):
+                            if jf in val:
+                                attrs[key] = val[jf]
+                                break
+                    if storage:
+                        try:
+                            storage.record_hook_event(
+                                agent_name=svc or "otlp",
+                                session_id=svc or "otlp",
+                                event_type="otlp:log",
+                                timestamp=ts_ns / 1e9 if ts_ns else time.time(),
+                                tool_output=log_body[:2000] if log_body else None,
+                                metadata=attrs,
+                            )
+                        except Exception:
+                            pass
+
+        return jsonify({"partialSuccess": {}}), 200
 
     return app
 
