@@ -1089,3 +1089,105 @@ footer {
   text-decoration: underline;
   opacity: 0.85;
 }
+
+/* ─── Events Tab ─── */
+.events-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.events-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.events-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.events-select:focus {
+  border-color: var(--accent);
+}
+.events-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.events-stat {
+  padding: 4px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+#tbl-events td { font-size: 13px; }
+#tbl-events tbody tr { transition: background 0.1s; }
+#tbl-events tbody tr:hover { background: var(--bg-card-hover); }
+
+/* ─── Skill Send Modal ─── */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 999;
+  display: none;
+}
+.modal-overlay.open { display: block; }
+.modal-panel {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px;
+  width: 460px; max-width: 90vw; z-index: 1000;
+  display: none; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.modal-panel.open { display: block; }
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+}
+.modal-header h3 { margin: 0; font-size: 16px; }
+.modal-close {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  padding: 4px;
+}
+.modal-close:hover { color: var(--text); }
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--text-secondary); margin-bottom: 4px;
+}
+.form-input {
+  width: 100%; padding: 8px 10px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text);
+  font-family: var(--font-mono); font-size: 13px; outline: none;
+}
+.form-input:focus { border-color: var(--accent); }
+.btn-sm {
+  padding: 3px 10px; font-size: 11px; border-radius: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+}
+.btn-sm:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+.event-session-link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.event-session-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}

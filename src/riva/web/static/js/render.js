@@ -442,6 +442,84 @@ function renderConfigs(configs) {
   }).join('');
 }
 
+/* --- Events Tab --- */
+function renderEvents(events) {
+  var wrap = document.getElementById('events-table-wrap');
+  var statsEl = document.getElementById('events-stats');
+  if (!events || !events.length) {
+    wrap.innerHTML = '<p class="empty-msg">No events yet. Install hooks with <code>riva hooks install claude-code</code> or push to the OTLP receiver.</p>';
+    if (statsEl) statsEl.textContent = '';
+    return;
+  }
+
+  // Stats summary
+  if (statsEl) {
+    var agents = {};
+    var types = {};
+    events.forEach(function(e) {
+      agents[e.agent_name] = (agents[e.agent_name] || 0) + 1;
+      types[e.event_type] = (types[e.event_type] || 0) + 1;
+    });
+    var agentCount = Object.keys(agents).length;
+    statsEl.innerHTML = '<span class="events-stat">' + events.length + ' events</span>' +
+      '<span class="events-stat">' + agentCount + ' agent' + (agentCount !== 1 ? 's' : '') + '</span>';
+
+    // Populate agent filter dropdown with seen agents
+    var agentSelect = document.getElementById('events-agent-filter');
+    if (agentSelect) {
+      var current = agentSelect.value;
+      var opts = '<option value="">All agents</option>';
+      Object.keys(agents).sort().forEach(function(name) {
+        var sel = name === current ? ' selected' : '';
+        opts += '<option value="' + esc(name) + '"' + sel + '>' + esc(name) + ' (' + agents[name] + ')</option>';
+      });
+      agentSelect.innerHTML = opts;
+    }
+  }
+
+  var h = '<table id="tbl-events"><thead><tr>' +
+    '<th>Time</th><th>Agent</th><th>Type</th><th>Tool</th><th>OK</th><th>Duration</th><th>Session</th>' +
+    '</tr></thead><tbody>';
+
+  events.forEach(function(e) {
+    var ts = '';
+    try {
+      var d = new Date(e.timestamp * 1000);
+      ts = d.toLocaleTimeString();
+    } catch (_) { ts = '\u2014'; }
+
+    var agent = esc(e.agent_name || '\u2014');
+    var evtType = esc(e.event_type || '\u2014');
+    var tool = esc(e.tool_name || '\u2014');
+    var ok = e.success ? '<span style="color:var(--green)">OK</span>' : '<span style="color:var(--red)">FAIL</span>';
+    var dur = e.duration_ms != null ? e.duration_ms + 'ms' : '\u2014';
+    var sidRaw = e.session_id ? String(e.session_id) : '';
+    var sidShort = sidRaw ? esc(sidRaw.substring(0, 12)) : '\u2014';
+
+    // Color-code event type
+    var typeCls = '';
+    if (evtType.indexOf('otlp:') === 0) typeCls = ' style="color:var(--purple)"';
+    else if (evtType.indexOf('jsonl:') === 0) typeCls = ' style="color:var(--yellow)"';
+    else if (evtType === 'PostToolUse' || evtType === 'PreToolUse') typeCls = ' style="color:var(--accent)"';
+
+    h += '<tr>' +
+      '<td style="white-space:nowrap;font-family:var(--font-mono);font-size:12px">' + esc(ts) + '</td>' +
+      '<td>' + agent + '</td>' +
+      '<td' + typeCls + '>' + evtType + '</td>' +
+      '<td style="font-family:var(--font-mono)">' + tool + '</td>' +
+      '<td>' + ok + '</td>' +
+      '<td class="num">' + esc(dur) + '</td>' +
+      '<td style="font-family:var(--font-mono);font-size:11px">' +
+        (sidRaw ? '<a href="#" class="event-session-link" data-session="' + esc(sidRaw) + '" title="Open forensic session: ' + esc(sidRaw) + '">' + sidShort + '</a>' : '\u2014') +
+      '</td>' +
+      '</tr>';
+  });
+
+  h += '</tbody></table>';
+  wrap.innerHTML = h;
+  makeSortable(document.getElementById('tbl-events'));
+}
+
 function renderSkills(skills) {
   var hint = document.getElementById('skills-hint');
   var wrap = document.getElementById('skills-table-wrap');
@@ -467,6 +545,7 @@ function renderSkills(skills) {
     var nameCell = sk.file_path
       ? '<a class="skill-link" href="#" data-path="' + esc(sk.file_path) + '" title="' + esc(sk.file_path) + '">' + esc(sk.name) + '</a>'
       : '<span class="skill-name">' + esc(sk.name) + '</span>';
+    var sendBtn = '<button class="btn btn-sm skill-send-btn" data-skill="' + esc(sk.id || sk.name) + '" data-agent="' + esc(sk.agent || '') + '" title="Export to another workspace">Send</button>';
     return '<tr>' +
       '<td>' + nameCell + (tags ? ' ' + tags : '') + (shared ? ' ' + shared : '') + '</td>' +
       '<td>' + esc(sk.agent || 'shared') + '</td>' +
@@ -476,12 +555,13 @@ function renderSkills(skills) {
       '<td class="num">' + bt + '</td>' +
       '<td class="num">' + tokens + '</td>' +
       '<td>' + esc(lastUsed) + '</td>' +
+      '<td>' + sendBtn + '</td>' +
       '</tr>';
   }).join('');
 
   wrap.innerHTML = '<table><thead><tr>' +
     '<th>Skill</th><th>Agent</th><th>Invocation</th>' +
     '<th class="num">Uses</th><th class="num">Success%</th>' +
-    '<th class="num">Backtracks</th><th class="num">Avg Tokens</th><th>Last Used</th>' +
+    '<th class="num">Backtracks</th><th class="num">Avg Tokens</th><th>Last Used</th><th>Export</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 }

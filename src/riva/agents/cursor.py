@@ -129,6 +129,27 @@ class CursorDetector(AgentDetector):
             return None
 
 
+    def write_skill(self, skill, workspace=None):
+        """Write a skill as a .cursor/rules/<name>.mdc file."""
+        base = Path(workspace) if workspace else Path.cwd()
+        rules_dir = base / ".cursor" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = skill.id.lower().replace(" ", "-") + ".mdc"
+        # Strip prefix if present (cursor skills use "cursor-" prefix internally)
+        if filename.startswith("cursor-"):
+            filename = filename[7:]
+        path = rules_dir / filename
+
+        lines = []
+        lines.append(f"# {skill.name}")
+        lines.append("")
+        if skill.description:
+            lines.append(skill.description)
+            lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
     def parse_skills(self) -> list:
         """Discover Cursor Project Rules as skills.
 

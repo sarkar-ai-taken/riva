@@ -122,6 +122,16 @@ class ResourceMonitor:
         except Exception:
             pass
 
+        # JSONL session tailer (Phase 2)
+        self._tailer: Any | None = None
+        if storage is not None:
+            try:
+                from riva.core.tailer import SessionTailer
+
+                self._tailer = SessionTailer(storage)
+            except Exception:
+                pass
+
     @property
     def instances(self) -> list[AgentInstance]:
         with self._lock:
@@ -535,9 +545,19 @@ class ResourceMonitor:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        if self._tailer:
+            try:
+                self._tailer.start()
+            except Exception:
+                pass
 
     def stop(self) -> None:
         """Stop the background monitor thread."""
+        if self._tailer:
+            try:
+                self._tailer.stop()
+            except Exception:
+                pass
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=5.0)

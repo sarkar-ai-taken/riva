@@ -34,24 +34,33 @@ Riva exists to restore **clarity, safety, and trust**.
 |:---:|:---:|
 | ![Agent Overview](assets/riva-resources.png) | ![Infosec Monitoring](assets/riva-security.png) |
 
+| Event Stream (v0.3.14) | Events → Forensic Drill-in |
+|:---:|:---:|
+| ![Event Stream](assets/riva-events.png) | ![Forensic Session](assets/riva-events-to-forensics.png) |
+
+| Forensic Timeline — Tool Calls, Patterns, Dead Ends |
+|:---:|
+| ![Forensic Timeline](assets/riva-forensic-timeline.png) |
+
 ---
 
 ## How it works
 
 ```
 Local Agents (Claude Code / Codex CLI / Gemini CLI / LangGraph / CrewAI / AutoGen / ...)
-                 |
-                 v
-        +------------------+
-        |       Riva       |    discovery, metrics, logs, lifecycle
-        |  (observability) |
-        +--------+---------+
-                 |
-        +--------+---------+
-        |        |         |
-      CLI      TUI    Web Dashboard
-                |
-           System Tray (macOS)
+        |              |                        |
+        | hook events  | session JSONL tail     | OTLP push
+        v              v                        v
+        +----------------------------------------------+
+        |                    Riva                      |
+        |  discovery · metrics · logs · lifecycle      |
+        |  hook_events (tool calls · sessions · spans) |
+        +--------------------+-------------------------+
+                             |
+        +--------------------+-------------------------+
+        |          |         |           |             |
+      CLI         TUI    Web Dashboard  REST API   System Tray
+                Events tab  /api/events  /otlp/v1/*  (macOS)
 ```
 
 Riva runs entirely on your machine.
@@ -65,6 +74,9 @@ It **observes agent behavior** but does not execute agent actions.
 - **Lifecycle visibility** — see when agents start, stop, crash, or hang
 - **Resource tracking** — CPU, memory, and uptime per agent in real time
 - **Token usage stats** — track token consumption, model usage, and tool call frequency
+- **Event stream (new in v0.3.14)** — real-time tool-call visibility via three ingestion paths: Claude Code hook events, JSONL session file tail-watching (Claude Code + Cursor), and OTLP HTTP receiver (any OTel-instrumented agent); all surfaced in the new **Events tab** (`3`/`e`) in `riva watch`
+- **Claude Code hooks (new in v0.3.14)** — `riva hooks install` registers Riva into Claude Code's hook system in one command; every `PreToolUse`, `PostToolUse`, `SessionStart`, `SubagentStop`, and `Stop` event is streamed to Riva in real time
+- **OTLP receiver (new in v0.3.14)** — `POST /otlp/v1/traces|metrics|logs` accepts protobuf and JSON; LangGraph, CrewAI, AutoGen and any OTel-instrumented agent can push directly to Riva
 - **Environment scanning** — detect exposed API keys in environment variables
 - **Sandbox detection** — detect whether agents run inside containers (Docker, Podman, containerd, LXC) or directly on the host
 - **Session forensics** — `riva forensic` deep-dive analysis of agent session transcripts — timeline, patterns, decisions, efficiency metrics; works for both interactive and non-interactive (API/MCP) sessions
@@ -74,7 +86,7 @@ It **observes agent behavior** but does not execute agent actions.
 - **Compliance audit log** — tamper-evident JSONL log with HMAC chain, CEF export for SIEMs, integrity verification via `riva audit verify`
 - **Security audit** — `riva audit` checks for config permission issues, exposed secrets, and dashboard misconfiguration
 - **System tray** — native macOS menu bar app for quick access to TUI, web dashboard, scan, and audit (compiled Swift)
-- **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, forensic drill-in, and Skills tab
+- **Web dashboard** — Flask-based dashboard with REST API, security headers, optional auth token, forensic drill-in, Skills tab, and Events feed
 - **Skill description** — `riva --skill-help` outputs structured Markdown so any AI agent can use riva as a tool; invocable as an MCP skill
 - **Framework-agnostic** — works across multiple agent frameworks and custom agents
 - **Local-first** — no cloud, no telemetry, no hidden data flows
@@ -177,6 +189,13 @@ Launch the live TUI dashboard with real-time resource monitoring.
 ```bash
 riva watch
 ```
+
+Tab keys:
+| Key | Tab | Content |
+|-----|-----|---------|
+| `1` / `m` | **Main** | Agent table, resource cards, network, security, forensic summary |
+| `2` / `s` | **Skills** | All skills with forensic stats |
+| `3` / `e` | **Events** | Real-time event stream — hook events, JSONL tail, OTLP (last 1 h) |
 
 ### `riva tray`
 
@@ -325,6 +344,161 @@ Riva auto-discovers skills from agent-specific sources:
 | Cline | Rules | `~/.clinerules`, `.clinerules` |
 
 Slash commands (e.g. `/commit`, `/review-pr`) in session JSONL are automatically detected and linked to skill invocations during `riva skills scan`.
+
+### `riva skills send` — Cross-agent Skill Export
+
+Share skills between workspaces and across agent frameworks. Riva converts each skill into the target agent's native format automatically.
+
+```bash
+# Same agent, different workspace
+riva skills send frontend-design --to /path/to/project2
+
+# Claude Code → Cursor
+riva skills send frontend-design --to /project2 --agent cursor
+
+# Claude Code → Gemini CLI
+riva skills send frontend-design --to /project2 --agent gemini-cli
+
+# Disambiguate when multiple agents have same skill name
+riva skills send commit --from claude-code --to /project2 --agent codex-cli
+```
+
+Supported target formats:
+
+| Target agent | Written to |
+|---|---|
+| Claude Code | `.claude/commands/<name>.md` |
+| Cursor | `.cursor/rules/<name>.mdc` |
+| Codex CLI | `AGENTS.md` (appended section) |
+| Gemini CLI | `GEMINI.md` (appended section) |
+| Kiro | `.kiro/specs/<name>.md` |
+| Cline | `.clinerules` (appended section) |
+| Windsurf | `.windsurfrules` (appended section) |
+
+**Web dashboard**: click **Send** on any skill row to open the export modal:
+
+| Skills Tab with Send buttons | Export Skill Modal |
+|:---:|:---:|
+| ![Skills Send](assets/riva-skills-send.png) | ![Export Modal](assets/riva-skills-export-modal.png) |
+
+### `riva hooks`
+
+Install and manage Riva's real-time hook integrations with AI agents.
+
+```bash
+riva hooks install                    # Register Riva hooks in ~/.claude/settings.json
+riva hooks install --agent claude-code  # Explicit agent (default)
+riva hooks uninstall                  # Remove Riva hook entries
+riva hooks status                     # Show which events have Riva hooks installed
+```
+
+Once installed, every Claude Code tool call (`PreToolUse`, `PostToolUse`), session start, subagent stop, and stop event is streamed to the running Riva server in real time.
+
+**Quick setup:**
+
+```bash
+pip install riva
+riva hooks install        # one-time setup
+riva watch                # launch dashboard — press 3 for the Events tab
+# now run Claude Code in any terminal
+```
+
+Environment variables for the hook script:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RIVA_SERVER_URL` | `http://127.0.0.1:8585` | Riva server base URL |
+| `RIVA_AUTH_TOKEN` | _(none)_ | Bearer token if `riva web start --auth-token` was used |
+
+---
+
+## Event Stream — Real-time Tool-call Visibility
+
+Riva v0.3.14 adds a unified **event stream** that captures every tool call, session lifecycle event, and agent action in real time. Three ingestion paths feed into one view:
+
+```
+Claude Code hooks ──→ POST /api/events ──→┐
+JSONL tail-watching ──→ (automatic)  ──→  ├──→ hook_events table ──→ Events tab + API
+OTLP receiver ──→ POST /otlp/v1/* ──→    ┘
+```
+
+### 1. Claude Code hooks (push — real-time)
+
+Every `PreToolUse`, `PostToolUse`, `SessionStart`, `SubagentStop`, and `Stop` event is pushed to Riva as it happens.
+
+```bash
+riva hooks install claude-code    # one-time setup
+riva web start                    # start the server
+# Use Claude Code normally — events appear instantly
+```
+
+### 2. JSONL tail-watching (automatic — no setup)
+
+Riva watches `~/.claude/projects/**/*.jsonl` and `~/.cursor/projects/**/*.jsonl` for new lines every 5 seconds. No configuration needed — if the Riva server or TUI is running, tailing is active.
+
+Events appear as `jsonl:tool_use`, `jsonl:tool_result`, `jsonl:assistant`, `jsonl:user`, etc.
+
+### 3. OTLP receiver (push — any OTel agent)
+
+Any agent instrumented with the OpenTelemetry SDK can push traces, metrics, and logs directly to Riva:
+
+```bash
+# From curl
+curl -X POST http://127.0.0.1:8585/otlp/v1/traces \
+  -H "Content-Type: application/json" \
+  -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"my-agent"}}]},"scopeSpans":[{"spans":[{"traceId":"abc","spanId":"def","name":"search","startTimeUnixNano":"1712859232000000000","attributes":[]}]}]}]}'
+```
+
+```python
+# From Python — point any OTel exporter at Riva
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+exporter = OTLPSpanExporter(endpoint="http://127.0.0.1:8585/otlp/v1/traces")
+```
+
+Events appear as `otlp:trace`, `otlp:metric`, `otlp:log`.
+
+### Viewing events
+
+**Web dashboard** — click the **Events** tab in the sidebar:
+
+![Event Stream](assets/riva-events.png)
+
+- Filter by agent, event type, or time range
+- Auto-refreshes every 3 seconds
+- Click any **session ID** to jump to the forensic session detail
+
+**TUI** — press `3` or `e` in `riva watch` for the Events tab.
+
+**API** — query events programmatically:
+
+```bash
+# All events from the last hour
+curl "http://127.0.0.1:8585/api/events?hours=1&limit=100"
+
+# Filter by agent
+curl "http://127.0.0.1:8585/api/events?agent=Claude+Code"
+
+# Filter by type
+curl "http://127.0.0.1:8585/api/events?type_prefix=otlp"
+curl "http://127.0.0.1:8585/api/events?type_prefix=jsonl"
+```
+
+### Events → Forensics deep-link
+
+Clicking a session ID in the event stream navigates directly to the **Forensics** tab with the full session analysis:
+
+| Forensic Session Summary | Forensic Timeline |
+|:---:|:---:|
+| ![Session Detail](assets/riva-events-to-forensics.png) | ![Timeline](assets/riva-forensic-timeline.png) |
+
+The forensic view shows:
+- **Summary** — model, duration, turns, tokens, efficiency score
+- **Patterns** — dead ends, search thrashing, retry loops, write-without-read
+- **Timeline** — every turn with prompt, tool calls, duration, and success/failure
+- **Files** — all files read and written during the session
+- **Decisions** — key decision points with reasoning previews
+
+---
 
 ### `riva otel`
 
@@ -493,10 +667,46 @@ A warning is printed when binding to a non-localhost address.
 | `GET /api/forensic/session/<id>` | Full parsed session detail |
 | `GET /api/forensic/trends` | Cross-session aggregate trends (cached 30s) |
 | `GET /api/skills` | All skills with forensic stats (cached 30s) |
+| `POST /api/events` | Ingest a hook event from any agent adapter |
+| `GET /api/events` | Query hook events (`?agent=`, `?session=`, `?type_prefix=`, `?hours=`, `?limit=`) |
+| `POST /otlp/v1/traces` | OTLP trace receiver (protobuf or JSON) |
+| `POST /otlp/v1/metrics` | OTLP metrics receiver (protobuf or JSON) |
+| `POST /otlp/v1/logs` | OTLP log receiver (protobuf or JSON) |
+
+#### `POST /api/events` — event ingestion schema
+
+```json
+{
+  "agent_name": "Claude Code",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "event_type": "PostToolUse",
+  "timestamp": 1712859232.5,
+  "tool_name": "Bash",
+  "tool_input": { "command": "pytest tests/ -x" },
+  "tool_output": "5 passed in 0.4s",
+  "success": true,
+  "duration_ms": 412,
+  "metadata": {}
+}
+```
+
+#### OTLP receiver — configure any OTel SDK
+
+```python
+# Python — opentelemetry-sdk
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+provider = TracerProvider()
+provider.add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint="http://127.0.0.1:8585/otlp/v1/traces"))
+)
+```
 
 ### Authentication
 
-When started with `--auth-token`, all `/api/*` routes require a `Authorization: Bearer <token>` header. The index page (`/`) remains accessible without authentication.
+When started with `--auth-token`, all `/api/*` and `/otlp/*` routes require an `Authorization: Bearer <token>` header. The index page (`/`) remains accessible without authentication.
 
 ```bash
 # Start with auth
@@ -504,6 +714,9 @@ riva web start --auth-token secret123
 
 # Access API
 curl -H "Authorization: Bearer secret123" http://127.0.0.1:8585/api/agents
+
+# OTLP with auth (set in your OTel SDK)
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer secret123" your-agent
 ```
 
 ### Security headers
@@ -697,8 +910,28 @@ twine upload dist/*
 
 ## Uninstall
 
+If you installed Claude Code hooks, remove them first:
+
 ```bash
+riva hooks uninstall --all      # remove hook entries from ~/.claude/settings.json
+riva web stop                   # stop the web daemon if running
 pip uninstall riva
+```
+
+Without `riva hooks uninstall`, the hook entries remain in `~/.claude/settings.json`. They're harmless (the hook script fails silently when Riva isn't installed) but leave orphaned config. Clean them up manually if needed:
+
+```bash
+# Manual cleanup (if you already uninstalled without removing hooks)
+python3 -c "
+import json; p = __import__('pathlib').Path.home() / '.claude/settings.json'
+d = json.loads(p.read_text())
+h = d.get('hooks', {})
+for ev in list(h):
+    h[ev] = [e for e in h[ev] if not any('riva.hooks' in x.get('command','') for x in e.get('hooks',[]))]
+    if not h[ev]: del h[ev]
+p.write_text(json.dumps(d, indent=2))
+print('Cleaned')
+"
 ```
 
 Or use the uninstall script:

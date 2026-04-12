@@ -220,6 +220,13 @@
         } catch (e) {}
       }
 
+      // Fetch events when on events tab
+      if (currentTab === 'events') {
+        try {
+          await pollEvents();
+        } catch (e) {}
+      }
+
       setConnection(true);
       updateTimestamp();
     } catch (e) {
@@ -293,6 +300,120 @@
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: path})
     });
+  });
+
+  /* --- Event → Forensic session link --- */
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.event-session-link');
+    if (!link) return;
+    e.preventDefault();
+    var sessionId = link.getAttribute('data-session');
+    if (!sessionId) return;
+    switchTab('forensics');
+    window.loadForensicSession(sessionId);
+  });
+
+  /* --- Skill Send Modal --- */
+  (function() {
+    var modal = document.getElementById('skill-send-modal');
+    var overlay = document.getElementById('skill-send-overlay');
+    var closeBtn = document.getElementById('skill-send-close');
+    var submitBtn = document.getElementById('send-submit');
+    var resultEl = document.getElementById('send-result');
+
+    function openModal(skillName, sourceAgent) {
+      document.getElementById('send-skill-name').value = skillName;
+      document.getElementById('send-source-agent').value = sourceAgent;
+      document.getElementById('send-target-workspace').value = '';
+      document.getElementById('send-target-agent').value = '';
+      resultEl.innerHTML = '';
+      modal.classList.add('open');
+      overlay.classList.add('open');
+      document.getElementById('send-target-workspace').focus();
+    }
+    function closeModal() {
+      modal.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', closeModal);
+
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.skill-send-btn');
+      if (!btn) return;
+      e.preventDefault();
+      openModal(btn.dataset.skill, btn.dataset.agent);
+    });
+
+    submitBtn.addEventListener('click', async function() {
+      var skillName = document.getElementById('send-skill-name').value;
+      var targetWorkspace = document.getElementById('send-target-workspace').value.trim();
+      var targetAgent = document.getElementById('send-target-agent').value;
+      var sourceAgent = document.getElementById('send-source-agent').value;
+
+      if (!targetWorkspace) {
+        resultEl.innerHTML = '<span style="color:var(--red)">Enter a target workspace path.</span>';
+        return;
+      }
+
+      resultEl.innerHTML = '<span style="color:var(--text-dim)">Exporting...</span>';
+      submitBtn.disabled = true;
+
+      try {
+        var body = { skill_name: skillName, target_workspace: targetWorkspace };
+        if (sourceAgent) body.source_agent = sourceAgent;
+        if (targetAgent) body.target_agent = targetAgent;
+
+        var res = await fetch('/api/skills/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (data.ok) {
+          resultEl.innerHTML = '<span style="color:var(--green)">' + esc(data.message) + '</span>';
+        } else {
+          resultEl.innerHTML = '<span style="color:var(--red)">' + esc(data.error) + '</span>';
+        }
+      } catch (err) {
+        resultEl.innerHTML = '<span style="color:var(--red)">Request failed</span>';
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  })();
+
+  /* --- Events Tab Polling & Filters --- */
+  async function pollEvents() {
+    var agentFilter = document.getElementById('events-agent-filter');
+    var typeFilter = document.getElementById('events-type-filter');
+    var hoursFilter = document.getElementById('events-hours-filter');
+
+    var params = new URLSearchParams();
+    params.set('limit', '200');
+    if (agentFilter && agentFilter.value) params.set('agent', agentFilter.value);
+    if (typeFilter && typeFilter.value) params.set('type_prefix', typeFilter.value);
+    if (hoursFilter && hoursFilter.value) params.set('hours', hoursFilter.value);
+
+    var res = await fetch('/api/events?' + params.toString());
+    if (res.ok) {
+      var data = await res.json();
+      renderEvents(data.events || []);
+    }
+  }
+
+  // Auto-poll events every 3s when the events tab is active
+  setInterval(function() {
+    if (currentTab === 'events') {
+      pollEvents().catch(function() {});
+    }
+  }, 3000);
+
+  // Re-fetch on filter change
+  ['events-agent-filter', 'events-type-filter', 'events-hours-filter'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', function() { pollEvents(); });
   });
 
   /* --- Init --- */

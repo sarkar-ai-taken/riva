@@ -24,6 +24,7 @@ from riva.tui.components import (
     build_agent_table,
     build_env_table,
     build_forensic_panel,
+    build_hook_events_panel,
     build_network_table,
     build_orphan_panel,
     build_security_panel,
@@ -31,13 +32,15 @@ from riva.tui.components import (
 )
 from riva.utils.formatting import format_number
 
-Tab = Literal["main", "skills"]
+Tab = Literal["main", "skills", "events"]
 
 _TAB_KEYS: dict[str, Tab] = {
     "1": "main",
     "m": "main",
     "2": "skills",
     "s": "skills",
+    "3": "events",
+    "e": "events",
 }
 
 
@@ -101,7 +104,7 @@ def _build_header(active_tab: Tab) -> Panel:
     text.append(" — AI Agent Command Center", style="dim white")
     text.append("    ", style="")
 
-    for key, label, tab in [("1", "Main", "main"), ("2", "Skills", "skills")]:
+    for key, label, tab in [("1", "Main", "main"), ("2", "Skills", "skills"), ("3", "Events", "events")]:
         if tab == active_tab:
             text.append(f" [{key}] {label} ", style="bold black on bright_cyan")
         else:
@@ -111,7 +114,7 @@ def _build_header(active_tab: Tab) -> Panel:
 
 
 def _build_footer(_active_tab: Tab) -> Panel:
-    hints = "[dim][bold]1[/bold] Main  [bold]2[/bold] Skills  [bold]Ctrl+C[/bold] Exit  •  Polling every 2s[/dim]"
+    hints = "[dim][bold]1[/bold] Main  [bold]2[/bold] Skills  [bold]3[/bold] Events  [bold]Ctrl+C[/bold] Exit  •  Polling every 2s[/dim]"
     return Panel(hints, border_style="dim")
 
 
@@ -278,6 +281,48 @@ def _build_skills_layout(monitor: ResourceMonitor) -> Layout:
 
 
 # ---------------------------------------------------------------------------
+# Events tab layout
+# ---------------------------------------------------------------------------
+
+
+def _build_events_layout(monitor: ResourceMonitor) -> Layout:
+    """Full-screen event stream tab: all hook events, JSONL tail events, and OTLP."""
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="body"),
+        Layout(name="footer", size=3),
+    )
+    layout["header"].update(_build_header("events"))
+    layout["footer"].update(_build_footer("events"))
+
+    events: list[dict] = []
+    storage = monitor.storage
+    if storage:
+        try:
+            events = storage.get_hook_events(hours=1.0, limit=200)
+        except Exception:
+            pass
+
+    body = Layout()
+    body.split_column(
+        Layout(name="stream"),
+        Layout(name="hint", size=3),
+    )
+    body["stream"].update(build_hook_events_panel(events if events else None, max_rows=40))
+    body["hint"].update(
+        Panel(
+            "[dim]Showing last 1 h of events from Claude Code hooks, JSONL tail-watching, and OTLP receivers.  "
+            "Run [bold]riva web start[/bold] and POST to [bold]/api/events[/bold] from any agent adapter.[/dim]",
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
+    layout["body"].update(body)
+    return layout
+
+
+# ---------------------------------------------------------------------------
 # Dashboard entry point
 # ---------------------------------------------------------------------------
 
@@ -285,11 +330,16 @@ def _build_skills_layout(monitor: ResourceMonitor) -> Layout:
 def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
     """Run the live TUI dashboard with tab switching."""
     if monitor is None:
+        from riva.core.storage import RivaStorage
         from riva.core.workspace import find_workspace, load_workspace_config
 
         workspace_dir = find_workspace()
         ws_config = load_workspace_config(workspace_dir) if workspace_dir else None
-        monitor = ResourceMonitor(workspace_config=ws_config)
+        try:
+            storage = RivaStorage()
+        except Exception:
+            storage = None
+        monitor = ResourceMonitor(workspace_config=ws_config, storage=storage)
 
     console = Console()
     monitor.start()
@@ -310,6 +360,8 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
     def _render() -> Layout:
         if active_tab == "skills":
             return _build_skills_layout(monitor)
+        if active_tab == "events":
+            return _build_events_layout(monitor)
         return _build_main_layout(monitor)
 
     try:

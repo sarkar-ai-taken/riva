@@ -2539,3 +2539,196 @@ def skills_import(input_file: str, global_scope: bool, agent: str | None) -> Non
         new_skills = [s for s in imported if s.id not in existing_ids]
         save_workspace_skills(existing + new_skills, workspace_dir)
         console.print(f"\n[bold green]Imported {len(new_skills)} skill(s)[/bold green] → {workspace_dir / 'skills.toml'}\n")
+
+
+@skills.command(name="send")
+@click.argument("skill_name")
+@click.option("--to", "target_workspace", required=True, type=click.Path(), help="Target workspace directory.")
+@click.option("--from", "source_agent", default=None, help="Source agent (required if skill name is ambiguous).")
+@click.option("--agent", "target_agent", default=None, help="Target agent format (default: same as source).")
+def skills_send(skill_name: str, target_workspace: str, source_agent: str | None, target_agent: str | None) -> None:
+    """Export a skill to another workspace in any agent's native format.
+
+    \b
+    Examples:
+        riva skills send frontend-design --to /path/to/project2
+        riva skills send frontend-design --to /project2 --agent cursor
+        riva skills send commit --from claude-code --to /project2 --agent gemini-cli
+    """
+    from riva.core.skills import export_skill_to_agent
+
+    console = Console()
+    target = str(Path(target_workspace).resolve())
+    ok, msg = export_skill_to_agent(
+        skill_name=skill_name,
+        target_workspace=target,
+        source_agent=source_agent,
+        target_agent=target_agent,
+    )
+    if ok:
+        console.print(f"\n[bold green]✓[/bold green] {msg}\n")
+    else:
+        console.print(f"\n[bold red]✗[/bold red] {msg}\n")
+
+
+# ---------------------------------------------------------------------------
+# Hooks command group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def hooks() -> None:
+    """Manage Riva hook integrations with AI agents."""
+
+
+@hooks.command(name="list")
+def hooks_list() -> None:
+    """Show all agents and their hook support."""
+    from rich.table import Table
+
+    from riva.hooks.adapters import ADAPTERS
+    from riva.hooks.install import status as _status
+
+    console = Console()
+    table = Table(title="Hook Adapters", expand=True, title_style="bold cyan", border_style="bright_blue")
+    table.add_column("Agent", style="bold white", min_width=14)
+    table.add_column("CLI Key", min_width=12)
+    table.add_column("Status", min_width=14)
+    table.add_column("Events", min_width=10)
+    table.add_column("Settings Path", min_width=20, no_wrap=True)
+
+    for key in sorted(ADAPTERS):
+        adapter = ADAPTERS[key]
+        installed, total = _status(key)
+        if installed:
+            status_text = f"[bold green]✓ {len(installed)}/{total} installed[/bold green]"
+        else:
+            status_text = "[dim]not installed[/dim]"
+        events_str = ", ".join(adapter.events[:3])
+        if len(adapter.events) > 3:
+            events_str += f" (+{len(adapter.events) - 3})"
+        path_str = str(adapter.settings_path).replace(str(Path.home()), "~")
+        table.add_row(adapter.agent_name, key, status_text, events_str, path_str)
+
+    if not ADAPTERS:
+        table.add_row("[dim]No adapters registered[/dim]", "", "", "", "")
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+@hooks.command(name="install")
+@click.argument("agent", required=False, default=None)
+@click.option("--all", "install_all", is_flag=True, help="Install hooks for all available agents.")
+def hooks_install(agent: str | None, install_all: bool) -> None:
+    """Install Riva hooks into an AI agent's settings.
+
+    \b
+    Examples:
+        riva hooks install claude-code
+        riva hooks install --all
+    """
+    from riva.hooks.adapters import ADAPTERS
+    from riva.hooks.install import install
+
+    console = Console()
+
+    if not agent and not install_all:
+        console.print("\n[yellow]Specify an agent or use --all.[/yellow]")
+        console.print(f"[dim]Available: {', '.join(sorted(ADAPTERS))}[/dim]\n")
+        return
+
+    targets = sorted(ADAPTERS) if install_all else [agent]
+
+    for key in targets:
+        if key not in ADAPTERS:
+            console.print(f"\n[red]✗ Unknown agent: {key}[/red]")
+            console.print(f"[dim]Available: {', '.join(sorted(ADAPTERS))}[/dim]\n")
+            return
+        ok, msg = install(key)
+        label = ADAPTERS[key].agent_name
+        if ok:
+            console.print(f"[bold green]✓[/bold green] {label}: {msg}")
+        else:
+            console.print(f"[bold red]✗[/bold red] {label}: {msg}")
+
+    console.print(
+        "\n[dim]Start Riva with [bold]riva web start[/bold] or [bold]riva watch[/bold] "
+        "to receive events.[/dim]\n"
+    )
+
+
+@hooks.command(name="uninstall")
+@click.argument("agent", required=False, default=None)
+@click.option("--all", "uninstall_all", is_flag=True, help="Remove hooks for all agents.")
+def hooks_uninstall(agent: str | None, uninstall_all: bool) -> None:
+    """Remove Riva hooks from an AI agent's settings.
+
+    \b
+    Examples:
+        riva hooks uninstall claude-code
+        riva hooks uninstall --all
+    """
+    from riva.hooks.adapters import ADAPTERS
+    from riva.hooks.install import uninstall
+
+    console = Console()
+
+    if not agent and not uninstall_all:
+        console.print("\n[yellow]Specify an agent or use --all.[/yellow]")
+        console.print(f"[dim]Available: {', '.join(sorted(ADAPTERS))}[/dim]\n")
+        return
+
+    targets = sorted(ADAPTERS) if uninstall_all else [agent]
+
+    for key in targets:
+        if key not in ADAPTERS:
+            console.print(f"\n[red]✗ Unknown agent: {key}[/red]\n")
+            return
+        ok, msg = uninstall(key)
+        label = ADAPTERS[key].agent_name
+        if ok:
+            console.print(f"[bold green]✓[/bold green] {label}: {msg}")
+        else:
+            console.print(f"[bold red]✗[/bold red] {label}: {msg}")
+
+    console.print()
+
+
+@hooks.command(name="status")
+@click.argument("agent", required=False, default=None)
+def hooks_status(agent: str | None) -> None:
+    """Show which Riva hooks are installed.
+
+    \b
+    Examples:
+        riva hooks status              # all agents
+        riva hooks status claude-code  # one agent
+    """
+    from riva.hooks.adapters import ADAPTERS
+    from riva.hooks.install import status as _status
+
+    console = Console()
+
+    targets = [agent] if agent else sorted(ADAPTERS)
+
+    for key in targets:
+        if key not in ADAPTERS:
+            console.print(f"\n[red]Unknown agent: {key}[/red]")
+            console.print(f"[dim]Available: {', '.join(sorted(ADAPTERS))}[/dim]\n")
+            return
+        adapter = ADAPTERS[key]
+        installed, total = _status(key)
+        if installed:
+            console.print(
+                f"\n[bold green]✓ {adapter.agent_name}[/bold green] — "
+                f"{len(installed)}/{total} hooks installed: {', '.join(installed)}"
+            )
+        else:
+            console.print(
+                f"\n[yellow]{adapter.agent_name}[/yellow] — "
+                f"no hooks installed. Run [bold]riva hooks install {key}[/bold]"
+            )
+
+    console.print()
