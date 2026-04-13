@@ -629,10 +629,9 @@ def resource_map(as_json: bool, agent_filter: str | None) -> None:
     from rich.rule import Rule
     from rich.tree import Tree
 
-    from riva.agents.base import AgentStatus
     from riva.core.env_scanner import scan_env_vars
-    from riva.core.resource_map import build_all_resource_maps
     from riva.core.monitor import ResourceMonitor
+    from riva.core.resource_map import build_all_resource_maps
 
     monitor = ResourceMonitor()
     instances = monitor.scan_once()
@@ -2212,7 +2211,7 @@ def skills_list(agent_filter: str | None, workspace_only: bool, as_json: bool) -
 @click.option("--limit", default=20, type=int, help="Max sessions to scan when using --all-sessions.")
 def skills_scan(session_id: str, all_sessions: bool, limit: int) -> None:
     """Scan forensic sessions to populate skill invocation stats."""
-    from riva.core.forensic import extract_skill_invocations, parse_session, resolve_session, discover_sessions
+    from riva.core.forensic import discover_sessions, extract_skill_invocations, parse_session, resolve_session
     from riva.core.storage import RivaStorage
     from riva.core.workspace import find_workspace
 
@@ -2281,7 +2280,8 @@ def skills_scan(session_id: str, all_sessions: bool, limit: int) -> None:
 
             slug = parsed.slug or parsed.session_id[:12]
             console.print(
-                f"\n[bold green]{len(invocations)} skill invocation(s)[/bold green] recorded from session [cyan]{slug}[/cyan].\n"
+                f"\n[bold green]{len(invocations)} skill invocation(s)[/bold green]"
+                f" recorded from session [cyan]{slug}[/cyan].\n"
             )
             for inv in invocations:
                 bt = " [yellow](backtrack)[/yellow]" if inv["had_backtrack"] else ""
@@ -2396,7 +2396,8 @@ def skills_add(
         existing = load_global_skills()
         if any(s.id == skill_id for s in existing):
             console.print(
-                f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists globally. Update .riva/skills.toml manually to change it.[/yellow]\n"
+                f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists globally."
+                f" Update .riva/skills.toml manually to change it.[/yellow]\n"
             )
             return
         skill = Skill(
@@ -2479,7 +2480,7 @@ def skills_share(skill_id: str, target_agent: str | None) -> None:
     else:
         save_global_skills(skill_list)
 
-    msg = f"shared"
+    msg = "shared"
     if target_agent:
         msg = f"shared with [bold]{target_agent}[/bold]"
     console.print(f"\n[bold green]Skill [cyan]{skill_id}[/cyan] {msg}.[/bold green]\n")

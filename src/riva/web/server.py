@@ -572,8 +572,8 @@ def create_app(auth_token: str | None = None) -> Flask:
 
     @app.route("/api/open-file", methods=["POST"])
     def api_open_file():
-        import subprocess
         import platform
+        import subprocess
 
         data = request.get_json(silent=True) or {}
         path = data.get("path", "")

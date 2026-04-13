@@ -114,7 +114,10 @@ def _build_header(active_tab: Tab) -> Panel:
 
 
 def _build_footer(_active_tab: Tab) -> Panel:
-    hints = "[dim][bold]1[/bold] Main  [bold]2[/bold] Skills  [bold]3[/bold] Events  [bold]Ctrl+C[/bold] Exit  •  Polling every 2s[/dim]"
+    hints = (
+        "[dim][bold]1[/bold] Main  [bold]2[/bold] Skills  [bold]3[/bold] Events"
+        "  [bold]Ctrl+C[/bold] Exit  •  Polling every 2s[/dim]"
+    )
     return Panel(hints, border_style="dim")
 
 

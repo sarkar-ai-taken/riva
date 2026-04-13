@@ -15,7 +15,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -208,7 +208,7 @@ class SessionTailer:
         raw_ts = entry.get("timestamp")
         if raw_ts:
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
 
                 dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
                 ts = dt.timestamp()

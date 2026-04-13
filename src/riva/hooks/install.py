@@ -6,9 +6,8 @@ Called by ``riva hooks install``, ``riva hooks uninstall``, ``riva hooks status`
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from riva.hooks.adapters import AgentHookAdapter, get_adapter
+from riva.hooks.adapters import get_adapter
 
 
 def install(agent_key: str) -> tuple[bool, str]:

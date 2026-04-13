@@ -8,6 +8,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from riva.core.forensic import (
+    Action,
+    ForensicSession,
+    Turn,
+    _detect_skill_invocation,
+    extract_skill_invocations,
+)
 from riva.core.skills import (
     Skill,
     SkillForensicStats,
@@ -20,15 +27,7 @@ from riva.core.skills import (
     save_workspace_skills,
 )
 from riva.core.storage import RivaStorage
-from riva.core.forensic import (
-    _detect_skill_invocation,
-    extract_skill_invocations,
-    ForensicSession,
-    Turn,
-    Action,
-)
 from riva.tui.components import build_skills_panel
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -470,6 +469,7 @@ class TestTurnSkillIdParsed:
     def test_slash_command_in_turn_sets_skill_id(self, tmp_path):
         """parse_session should set skill_id on turns whose prompt starts with /."""
         import json as _json
+
         from riva.core.forensic import parse_session
 
         events = [
@@ -496,6 +496,7 @@ class TestTurnSkillIdParsed:
 
     def test_normal_turn_has_no_skill_id(self, tmp_path):
         import json as _json
+
         from riva.core.forensic import parse_session
 
         events = [
@@ -617,7 +618,6 @@ class TestBuildSkillsPanel:
         assert "2" in str(panel.title)
 
     def test_success_rate_zero_usage_shows_dash(self, sample_skill):
-        from rich.text import Text
 
         sample_skill.forensic_stats = SkillForensicStats(usage_count=0)
         panel = build_skills_panel([sample_skill])
