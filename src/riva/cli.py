@@ -124,7 +124,9 @@ riva audit --json
 
 @click.group(invoke_without_command=True)
 @click.option("--version", is_flag=True, help="Show version and exit.")
-@click.option("--skill-help", "skill_help", is_flag=True, help="Print Markdown tool description for AI agent consumption.")
+@click.option(
+    "--skill-help", "skill_help", is_flag=True, help="Print Markdown tool description for AI agent consumption."
+)
 @click.pass_context
 def cli(ctx: click.Context, version: bool, skill_help: bool) -> None:
     """Riva - AI Agent Command Center.
@@ -701,13 +703,13 @@ def resource_map(as_json: bool, agent_filter: str | None) -> None:
                 tls = "[green]TLS[/green]" if c.is_tls else "[dim]plain[/dim]"
                 svc = f"  [dim]← {c.service}[/dim]" if c.service else ""
                 status_style = (
-                    "green" if c.status == "ESTABLISHED"
-                    else "yellow" if c.status in ("CLOSE_WAIT", "TIME_WAIT")
+                    "green"
+                    if c.status == "ESTABLISHED"
+                    else "yellow"
+                    if c.status in ("CLOSE_WAIT", "TIME_WAIT")
                     else "dim"
                 )
-                net_node.add(
-                    f"[{status_style}]{c.remote}[/{status_style}]  {tls}{svc}"
-                )
+                net_node.add(f"[{status_style}]{c.remote}[/{status_style}]  {tls}{svc}")
         elif rm.status == "running":
             net_node.add("[dim]no active connections[/dim]")
         else:
@@ -732,10 +734,7 @@ def resource_map(as_json: bool, agent_filter: str | None) -> None:
             for ch in rm.processes.children[:8]:
                 cpu = ch.get("cpu_percent", 0.0)
                 mem = ch.get("memory_mb", 0.0)
-                ch_node.add(
-                    f"{ch.get('name', '?')}  [dim]PID {ch.get('pid')}  "
-                    f"CPU {cpu:.1f}%  {mem:.1f} MB[/dim]"
-                )
+                ch_node.add(f"{ch.get('name', '?')}  [dim]PID {ch.get('pid')}  CPU {cpu:.1f}%  {mem:.1f} MB[/dim]")
             if len(rm.processes.children) > 8:
                 ch_node.add(f"[dim]… and {len(rm.processes.children) - 8} more[/dim]")
         if rm.status == "running":
@@ -2195,7 +2194,9 @@ def skills_list(agent_filter: str | None, workspace_only: bool, as_json: bool) -
 
     console = Console()
     if not all_skills:
-        console.print("\n[dim]No skills found. Define skills in .riva/skills.toml or run [bold]riva skills scan[/bold].[/dim]\n")
+        console.print(
+            "\n[dim]No skills found. Define skills in .riva/skills.toml or run [bold]riva skills scan[/bold].[/dim]\n"
+        )
         return
 
     from riva.tui.components import build_skills_panel
@@ -2279,7 +2280,9 @@ def skills_scan(session_id: str, all_sessions: bool, limit: int) -> None:
                 )
 
             slug = parsed.slug or parsed.session_id[:12]
-            console.print(f"\n[bold green]{len(invocations)} skill invocation(s)[/bold green] recorded from session [cyan]{slug}[/cyan].\n")
+            console.print(
+                f"\n[bold green]{len(invocations)} skill invocation(s)[/bold green] recorded from session [cyan]{slug}[/cyan].\n"
+            )
             for inv in invocations:
                 bt = " [yellow](backtrack)[/yellow]" if inv["had_backtrack"] else ""
                 console.print(f"  /{inv['skill_id']}{bt}  — {inv['token_count']} tokens, {inv['action_count']} actions")
@@ -2375,7 +2378,13 @@ def skills_add(
     import re
     from datetime import datetime, timezone
 
-    from riva.core.skills import Skill, load_global_skills, load_workspace_skills, save_global_skills, save_workspace_skills
+    from riva.core.skills import (
+        Skill,
+        load_global_skills,
+        load_workspace_skills,
+        save_global_skills,
+        save_workspace_skills,
+    )
     from riva.core.workspace import find_workspace
 
     console = Console()
@@ -2386,7 +2395,9 @@ def skills_add(
     if global_scope or not workspace_dir:
         existing = load_global_skills()
         if any(s.id == skill_id for s in existing):
-            console.print(f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists globally. Update .riva/skills.toml manually to change it.[/yellow]\n")
+            console.print(
+                f"\n[yellow]Skill [bold]{skill_id}[/bold] already exists globally. Update .riva/skills.toml manually to change it.[/yellow]\n"
+            )
             return
         skill = Skill(
             id=skill_id,
@@ -2418,7 +2429,9 @@ def skills_add(
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         save_workspace_skills(existing + [skill], workspace_dir)
-        console.print(f"\n[bold green]Skill [cyan]{skill_id}[/cyan] added[/bold green] → {workspace_dir / 'skills.toml'}\n")
+        console.print(
+            f"\n[bold green]Skill [cyan]{skill_id}[/cyan] added[/bold green] → {workspace_dir / 'skills.toml'}\n"
+        )
 
 
 @skills.command(name="share")
@@ -2434,7 +2447,7 @@ def skills_share(skill_id: str, target_agent: str | None) -> None:
 
     # Find the skill in workspace first, then global
     found = None
-    source = None
+    source: tuple[str, list, Path | None] | None = None
     if workspace_dir:
         ws_skills = load_workspace_skills(workspace_dir)
         for s in ws_skills:
@@ -2507,7 +2520,13 @@ def skills_export(output_file: str, workspace_only: bool, shared_only: bool) -> 
 @click.option("--agent", default=None, help="Override agent name for all imported skills.")
 def skills_import(input_file: str, global_scope: bool, agent: str | None) -> None:
     """Import skills from a TOML file."""
-    from riva.core.skills import _parse_skills_toml, load_global_skills, load_workspace_skills, save_global_skills, save_workspace_skills
+    from riva.core.skills import (
+        _parse_skills_toml,
+        load_global_skills,
+        load_workspace_skills,
+        save_global_skills,
+        save_workspace_skills,
+    )
     from riva.core.workspace import find_workspace
 
     console = Console()
@@ -2538,7 +2557,9 @@ def skills_import(input_file: str, global_scope: bool, agent: str | None) -> Non
         existing_ids = {s.id for s in existing}
         new_skills = [s for s in imported if s.id not in existing_ids]
         save_workspace_skills(existing + new_skills, workspace_dir)
-        console.print(f"\n[bold green]Imported {len(new_skills)} skill(s)[/bold green] → {workspace_dir / 'skills.toml'}\n")
+        console.print(
+            f"\n[bold green]Imported {len(new_skills)} skill(s)[/bold green] → {workspace_dir / 'skills.toml'}\n"
+        )
 
 
 @skills.command(name="send")
@@ -2654,8 +2675,7 @@ def hooks_install(agent: str | None, install_all: bool) -> None:
             console.print(f"[bold red]✗[/bold red] {label}: {msg}")
 
     console.print(
-        "\n[dim]Start Riva with [bold]riva web start[/bold] or [bold]riva watch[/bold] "
-        "to receive events.[/dim]\n"
+        "\n[dim]Start Riva with [bold]riva web start[/bold] or [bold]riva watch[/bold] to receive events.[/dim]\n"
     )
 
 

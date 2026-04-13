@@ -429,10 +429,7 @@ def parse_session(file_path: Path | str) -> ForensicSession:
             elif isinstance(content, list):
                 # Extract text from text-type blocks; skip tool_result blocks
                 # (those are handled below in the tool-result branch)
-                has_tool_result = any(
-                    isinstance(b, dict) and b.get("type") == "tool_result"
-                    for b in content
-                )
+                has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
                 if not has_tool_result:
                     parts = []
                     for block in content:

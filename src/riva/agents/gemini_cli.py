@@ -51,7 +51,6 @@ class GeminiCLIDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
-
     def write_skill(self, skill, workspace=None):
         """Append a skill section to GEMINI.md in the target workspace."""
         base = Path(workspace) if workspace else Path.cwd()
@@ -93,16 +92,18 @@ class GeminiCLIDetector(AgentDetector):
                         description = stripped[:120]
                         break
                 skill_id = "gemini-instructions" if workspace is None else "gemini-project-instructions"
-                skills.append(Skill(
-                    id=skill_id,
-                    name="GEMINI.md",
-                    description=description,
-                    agent=self.agent_name,
-                    invocation=None,
-                    tags=["instruction"],
-                    workspace=workspace,
-                    file_path=str(f),
-                ))
+                skills.append(
+                    Skill(
+                        id=skill_id,
+                        name="GEMINI.md",
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["instruction"],
+                        workspace=workspace,
+                        file_path=str(f),
+                    )
+                )
             except OSError:
                 pass
 

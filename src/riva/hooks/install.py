@@ -39,11 +39,7 @@ def install(agent_key: str) -> tuple[bool, str]:
             entries: list = hooks.setdefault(event, [])
             entry = adapter.build_entry(event)
             cmd = entry["hooks"][0]["command"]
-            already = any(
-                h.get("command") == cmd
-                for e in entries
-                for h in e.get("hooks", [])
-            )
+            already = any(h.get("command") == cmd for e in entries for h in e.get("hooks", []))
             if not already:
                 entries.append(entry)
                 installed.append(event)

@@ -91,7 +91,6 @@ class ContinueDevDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
-
     def parse_skills(self) -> list:
         """Discover Continue.dev slash commands as skills.
 
@@ -113,15 +112,17 @@ class ContinueDevDetector(AgentDetector):
                 if not name:
                     continue
                 skill_id = f"continue-{name.lower().replace(' ', '-')}"
-                skills.append(Skill(
-                    id=skill_id,
-                    name=name,
-                    description=cmd.get("description", "")[:120],
-                    agent=self.agent_name,
-                    invocation=f"/{name}",
-                    tags=["command"],
-                    workspace=None,
-                ))
+                skills.append(
+                    Skill(
+                        id=skill_id,
+                        name=name,
+                        description=cmd.get("description", "")[:120],
+                        agent=self.agent_name,
+                        invocation=f"/{name}",
+                        tags=["command"],
+                        workspace=None,
+                    )
+                )
         except (json.JSONDecodeError, OSError):
             pass
         return skills

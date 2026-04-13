@@ -15,10 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
 def _get_python_path() -> str:
     """Return the absolute path to the current Python interpreter."""
     import sys
+
     return sys.executable
+
 
 _CMD_TEMPLATE_FMT = "{python} -m riva.hooks.hook {agent} {event} 2>/dev/null || true"
 
@@ -54,7 +57,9 @@ class AgentHookAdapter:
                 {
                     "type": "command",
                     "command": _CMD_TEMPLATE_FMT.format(
-                        python=_get_python_path(), agent=self.cli_key, event=event,
+                        python=_get_python_path(),
+                        agent=self.cli_key,
+                        event=event,
                     ),
                     "timeout": self.timeout_ms,
                 }
@@ -63,14 +68,15 @@ class AgentHookAdapter:
 
     def riva_command(self, event: str) -> str:
         return _CMD_TEMPLATE_FMT.format(
-            python=_get_python_path(), agent=self.cli_key, event=event,
+            python=_get_python_path(),
+            agent=self.cli_key,
+            event=event,
         )
 
     def is_riva_entry(self, entry: dict) -> bool:
         """Return True if *entry* was installed by Riva."""
         return any(
-            "riva.hooks.hook" in h.get("command", "")
-            or "riva.hooks.claude_code_hook" in h.get("command", "")
+            "riva.hooks.hook" in h.get("command", "") or "riva.hooks.claude_code_hook" in h.get("command", "")
             for h in entry.get("hooks", [])
         )
 
@@ -150,14 +156,16 @@ def available_agents() -> list[str]:
 # Adapters — add new agents here
 # ====================================================================== #
 
-_register(AgentHookAdapter(
-    agent_name="Claude Code",
-    cli_key="claude-code",
-    settings_path=Path.home() / ".claude" / "settings.json",
-    events=["SessionStart", "PreToolUse", "PostToolUse", "SubagentStop", "Stop"],
-    timeout_ms=5000,
-    field_map={"tool_output": "tool_response"},
-))
+_register(
+    AgentHookAdapter(
+        agent_name="Claude Code",
+        cli_key="claude-code",
+        settings_path=Path.home() / ".claude" / "settings.json",
+        events=["SessionStart", "PreToolUse", "PostToolUse", "SubagentStop", "Stop"],
+        timeout_ms=5000,
+        field_map={"tool_output": "tool_response"},
+    )
+)
 
 # Codex CLI — uncomment when hook support is confirmed
 # _register(AgentHookAdapter(

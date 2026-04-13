@@ -78,7 +78,6 @@ class WindsurfDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
-
     def write_skill(self, skill, workspace=None):
         """Write a skill as a .windsurfrules section or a memory file."""
         base = Path(workspace) if workspace else Path.cwd()
@@ -122,15 +121,17 @@ class WindsurfDetector(AgentDetector):
                                 break
                     except OSError:
                         pass
-                    skills.append(Skill(
-                        id=skill_id,
-                        name=f.stem,
-                        description=description,
-                        agent=self.agent_name,
-                        invocation=None,
-                        tags=["memory"],
-                        workspace=None,
-                    ))
+                    skills.append(
+                        Skill(
+                            id=skill_id,
+                            name=f.stem,
+                            description=description,
+                            agent=self.agent_name,
+                            invocation=None,
+                            tags=["memory"],
+                            workspace=None,
+                        )
+                    )
             except OSError:
                 pass
 
@@ -144,15 +145,17 @@ class WindsurfDetector(AgentDetector):
                     if stripped:
                         first_line = stripped[:120]
                         break
-                skills.append(Skill(
-                    id="windsurf-project-rules",
-                    name=".windsurfrules",
-                    description=first_line,
-                    agent=self.agent_name,
-                    invocation=None,
-                    tags=["rule"],
-                    workspace=str(Path.cwd()),
-                ))
+                skills.append(
+                    Skill(
+                        id="windsurf-project-rules",
+                        name=".windsurfrules",
+                        description=first_line,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["rule"],
+                        workspace=str(Path.cwd()),
+                    )
+                )
             except OSError:
                 pass
 

@@ -60,7 +60,9 @@ class KiroDetector(AgentDetector):
         hooks_dir = self.config_dir / "hooks"
         if hooks_dir.is_dir():
             try:
-                hook_files = list(hooks_dir.glob("*.md")) + list(hooks_dir.glob("*.yaml")) + list(hooks_dir.glob("*.yml"))
+                hook_files = (
+                    list(hooks_dir.glob("*.md")) + list(hooks_dir.glob("*.yaml")) + list(hooks_dir.glob("*.yml"))
+                )
                 config["hooks_count"] = len(hook_files)
             except OSError:
                 pass

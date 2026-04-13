@@ -182,7 +182,6 @@ class CodexCLIDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
-
     def write_skill(self, skill, workspace=None):
         """Append a skill section to AGENTS.md in the target workspace."""
         base = Path(workspace) if workspace else Path.cwd()
@@ -219,15 +218,17 @@ class CodexCLIDetector(AgentDetector):
                     if stripped:
                         description = stripped[:120]
                         break
-                skills.append(Skill(
-                    id="codex-instructions",
-                    name="instructions",
-                    description=description,
-                    agent=self.agent_name,
-                    invocation=None,
-                    tags=["instruction"],
-                    workspace=None,
-                ))
+                skills.append(
+                    Skill(
+                        id="codex-instructions",
+                        name="instructions",
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["instruction"],
+                        workspace=None,
+                    )
+                )
             except OSError:
                 pass
 
@@ -242,15 +243,17 @@ class CodexCLIDetector(AgentDetector):
                         if stripped:
                             description = stripped[:120]
                             break
-                    skills.append(Skill(
-                        id=f"codex-project-{agents_file.stem.lower()}",
-                        name=agents_file.name,
-                        description=description,
-                        agent=self.agent_name,
-                        invocation=None,
-                        tags=["instruction"],
-                        workspace=str(Path.cwd()),
-                    ))
+                    skills.append(
+                        Skill(
+                            id=f"codex-project-{agents_file.stem.lower()}",
+                            name=agents_file.name,
+                            description=description,
+                            agent=self.agent_name,
+                            invocation=None,
+                            tags=["instruction"],
+                            workspace=str(Path.cwd()),
+                        )
+                    )
                 except OSError:
                     pass
                 break

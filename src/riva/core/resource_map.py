@@ -37,9 +37,9 @@ class FilesystemResources:
 class ConnectionResource:
     """A single network connection endpoint."""
 
-    remote: str = ""          # "host:port" or "ip:port"
+    remote: str = ""  # "host:port" or "ip:port"
     hostname: str | None = None
-    service: str | None = None   # human label from KNOWN_API_DOMAINS
+    service: str | None = None  # human label from KNOWN_API_DOMAINS
     is_tls: bool = False
     status: str = ""
 
@@ -48,7 +48,7 @@ class ConnectionResource:
 class NetworkResources:
     """Network resources for an agent."""
 
-    api_domain: str | None = None           # primary API domain from detector
+    api_domain: str | None = None  # primary API domain from detector
     connections: list[ConnectionResource] = field(default_factory=list)
 
 
@@ -59,11 +59,11 @@ class ProcessResources:
     pid: int | None = None
     parent_pid: int | None = None
     parent_name: str | None = None
-    launched_by: str | None = None          # "User Terminal", "IDE", "Script", …
-    ancestor_chain: list[dict] = field(default_factory=list)   # [{pid, name, exe}]
-    children: list[dict] = field(default_factory=list)         # [{pid, name, exe, cpu%, mem_mb}]
+    launched_by: str | None = None  # "User Terminal", "IDE", "Script", …
+    ancestor_chain: list[dict] = field(default_factory=list)  # [{pid, name, exe}]
+    children: list[dict] = field(default_factory=list)  # [{pid, name, exe, cpu%, mem_mb}]
     is_sandboxed: bool = False
-    sandbox_type: str | None = None         # "docker", "cgroup", …
+    sandbox_type: str | None = None  # "docker", "cgroup", …
 
 
 @dataclass
@@ -71,9 +71,9 @@ class MCPServer:
     """One MCP server configured for an agent."""
 
     name: str = ""
-    transport: str = "stdio"    # "stdio" | "http" | "sse"
+    transport: str = "stdio"  # "stdio" | "http" | "sse"
     command: str | None = None  # for stdio
-    url: str | None = None      # for http/sse
+    url: str | None = None  # for http/sse
     args: list[str] = field(default_factory=list)
 
 
@@ -82,7 +82,7 @@ class AgentResourceMap:
     """Complete resource map for a single agent."""
 
     agent_name: str
-    status: str                             # "running" | "installed" | "not_found"
+    status: str  # "running" | "installed" | "not_found"
     pid: int | None
     version: str | None
     filesystem: FilesystemResources

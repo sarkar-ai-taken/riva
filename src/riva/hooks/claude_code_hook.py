@@ -17,6 +17,7 @@ def main() -> None:
     sys.argv = [sys.argv[0], "claude-code", event_type]
 
     from riva.hooks.hook import main as _generic_main
+
     _generic_main()
 
 

@@ -128,7 +128,6 @@ class CursorDetector(AgentDetector):
         except OSError:
             return None
 
-
     def write_skill(self, skill, workspace=None):
         """Write a skill as a .cursor/rules/<name>.mdc file."""
         base = Path(workspace) if workspace else Path.cwd()
@@ -180,15 +179,17 @@ class CursorDetector(AgentDetector):
                                 break
                     except OSError:
                         pass
-                    skills.append(Skill(
-                        id=skill_id,
-                        name=f.stem,
-                        description=description,
-                        agent=self.agent_name,
-                        invocation=None,
-                        tags=["rule"],
-                        workspace=workspace,
-                    ))
+                    skills.append(
+                        Skill(
+                            id=skill_id,
+                            name=f.stem,
+                            description=description,
+                            agent=self.agent_name,
+                            invocation=None,
+                            tags=["rule"],
+                            workspace=workspace,
+                        )
+                    )
             except OSError:
                 pass
 

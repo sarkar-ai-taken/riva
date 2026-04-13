@@ -43,12 +43,12 @@ class Skill:
     id: str
     name: str
     description: str = ""
-    agent: str | None = None        # None = shared across all agents
-    invocation: str | None = None   # trigger pattern, e.g. "/commit"
+    agent: str | None = None  # None = shared across all agents
+    invocation: str | None = None  # trigger pattern, e.g. "/commit"
     tags: list[str] = field(default_factory=list)
     shared: bool = False
     source_agent: str | None = None  # original agent if imported/shared
-    workspace: str | None = None     # workspace path; None = global
+    workspace: str | None = None  # workspace path; None = global
     created_at: str | None = None
     forensic_stats: SkillForensicStats = field(default_factory=SkillForensicStats)
     file_path: str | None = None  # absolute path to the source file, for click-to-open
@@ -189,7 +189,12 @@ def export_skill_to_agent(
 
     # Filter by source agent if specified
     if source_agent:
-        filtered = [(a, s) for a, s in matches if a.lower().replace(" ", "-") == source_agent.lower().replace(" ", "-") or a.lower() == source_agent.lower()]
+        filtered = [
+            (a, s)
+            for a, s in matches
+            if a.lower().replace(" ", "-") == source_agent.lower().replace(" ", "-")
+            or a.lower() == source_agent.lower()
+        ]
         if not filtered:
             agents = ", ".join(sorted(set(a for a, _ in matches)))
             return False, f"Skill '{skill_name}' not found in {source_agent}. Found in: {agents}"

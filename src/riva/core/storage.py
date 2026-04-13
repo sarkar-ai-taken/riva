@@ -774,9 +774,7 @@ class RivaStorage:
                 (workspace,),
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM skill_invocations ORDER BY timestamp DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM skill_invocations ORDER BY timestamp DESC").fetchall()
         return [dict(row) for row in rows]
 
     def delete_skill(self, skill_id: str, workspace: str = "") -> None:

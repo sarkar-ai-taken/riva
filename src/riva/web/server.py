@@ -574,11 +574,13 @@ def create_app(auth_token: str | None = None) -> Flask:
     def api_open_file():
         import subprocess
         import platform
+
         data = request.get_json(silent=True) or {}
         path = data.get("path", "")
         if not path:
             return jsonify({"error": "missing path"}), 400
         from pathlib import Path
+
         if not Path(path).exists():
             return jsonify({"error": "file not found"}), 404
         try:
@@ -631,27 +633,31 @@ def create_app(auth_token: str | None = None) -> Flask:
                         stats = compute_forensic_stats(invocations)
                     except Exception:
                         pass
-                result.append({
-                    "id": sk.id,
-                    "name": sk.name,
-                    "description": sk.description,
-                    "agent": sk.agent,
-                    "invocation": sk.invocation,
-                    "tags": sk.tags,
-                    "shared": sk.shared,
-                    "workspace": sk.workspace,
-                    "file_path": sk.file_path,
-                    "forensic_stats": {
-                        "usage_count": stats.usage_count if stats else 0,
-                        "success_count": stats.success_count if stats else 0,
-                        "success_rate": round(stats.success_rate, 3) if stats else 0,
-                        "backtrack_count": stats.backtrack_count if stats else 0,
-                        "backtrack_rate": round(stats.backtrack_rate, 3) if stats else 0,
-                        "avg_tokens": stats.avg_tokens if stats else 0,
-                        "avg_actions": stats.avg_actions if stats else 0,
-                        "last_used": stats.last_used if stats else None,
-                    } if stats else None,
-                })
+                result.append(
+                    {
+                        "id": sk.id,
+                        "name": sk.name,
+                        "description": sk.description,
+                        "agent": sk.agent,
+                        "invocation": sk.invocation,
+                        "tags": sk.tags,
+                        "shared": sk.shared,
+                        "workspace": sk.workspace,
+                        "file_path": sk.file_path,
+                        "forensic_stats": {
+                            "usage_count": stats.usage_count if stats else 0,
+                            "success_count": stats.success_count if stats else 0,
+                            "success_rate": round(stats.success_rate, 3) if stats else 0,
+                            "backtrack_count": stats.backtrack_count if stats else 0,
+                            "backtrack_rate": round(stats.backtrack_rate, 3) if stats else 0,
+                            "avg_tokens": stats.avg_tokens if stats else 0,
+                            "avg_actions": stats.avg_actions if stats else 0,
+                            "last_used": stats.last_used if stats else None,
+                        }
+                        if stats
+                        else None,
+                    }
+                )
             return result
 
         return jsonify({"skills": _cached("skills", _fetch)})
@@ -701,8 +707,13 @@ def create_app(auth_token: str | None = None) -> Flask:
         # Reject obviously invalid event_type values (allow known prefixes and hook names)
         _valid_prefixes = ("jsonl:", "otlp:", "hook:")
         _known_types = {
-            "SessionStart", "PreToolUse", "PostToolUse", "SubagentStop", "Stop",
-            "Error", "unknown",
+            "SessionStart",
+            "PreToolUse",
+            "PostToolUse",
+            "SubagentStop",
+            "Stop",
+            "Error",
+            "unknown",
         }
         if event_type not in _known_types and not any(event_type.startswith(p) for p in _valid_prefixes):
             # Accept unknown types from future agents — just tag them instead of rejecting
@@ -716,6 +727,7 @@ def create_app(auth_token: str | None = None) -> Flask:
         elif isinstance(raw_ts, str):
             try:
                 from datetime import datetime
+
                 dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
                 ts = dt.timestamp()
             except (ValueError, TypeError):
@@ -816,6 +828,7 @@ def create_app(auth_token: str | None = None) -> Flask:
                     ExportTraceServiceRequest,
                     ExportTraceServiceResponse,
                 )
+
                 req = ExportTraceServiceRequest()
                 req.ParseFromString(request.get_data())
                 for rs in req.resource_spans:
@@ -835,7 +848,9 @@ def create_app(auth_token: str | None = None) -> Flask:
                                         agent_name=svc or "otlp",
                                         session_id=trace_id_hex,
                                         event_type="otlp:trace",
-                                        timestamp=span.start_time_unix_nano / 1e9 if span.start_time_unix_nano else time.time(),
+                                        timestamp=span.start_time_unix_nano / 1e9
+                                        if span.start_time_unix_nano
+                                        else time.time(),
                                         tool_name=span.name or None,
                                         metadata=_otlp_attrs_to_dict(span.attributes),
                                     )
@@ -900,6 +915,7 @@ def create_app(auth_token: str | None = None) -> Flask:
                     ExportMetricsServiceRequest,
                     ExportMetricsServiceResponse,
                 )
+
                 req = ExportMetricsServiceRequest()
                 req.ParseFromString(request.get_data())
                 for rm in req.resource_metrics:
@@ -975,6 +991,7 @@ def create_app(auth_token: str | None = None) -> Flask:
                     ExportLogsServiceRequest,
                     ExportLogsServiceResponse,
                 )
+
                 req = ExportLogsServiceRequest()
                 req.ParseFromString(request.get_data())
                 for rl in req.resource_logs:

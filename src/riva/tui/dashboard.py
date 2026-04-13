@@ -173,13 +173,18 @@ def _build_usage_summary(monitor: ResourceMonitor) -> Panel:
         tools = format_number(stats.total_tool_calls)
         parts.append(f"[bold]{inst.name}[/bold]: {tokens} tokens · {sessions} sessions · {tools} tool calls")
 
-    content = "  |  ".join(parts) if parts else "[dim]No usage data available. Run [bold]riva stats[/bold] for full breakdown.[/dim]"
+    content = (
+        "  |  ".join(parts)
+        if parts
+        else "[dim]No usage data available. Run [bold]riva stats[/bold] for full breakdown.[/dim]"
+    )
     return Panel(content, title="Usage Summary", title_align="left", border_style="cyan", padding=(0, 1))
 
 
 def _build_forensic_summary() -> Panel:
     try:
         from riva.core.forensic import discover_sessions
+
         sessions = discover_sessions(limit=5)
     except Exception:
         sessions = []
@@ -349,6 +354,7 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
     time.sleep(1)  # let first scan complete
     try:
         from riva.hub.client import ping_hub
+
         ping_hub(monitor.instances)
     except Exception:
         pass

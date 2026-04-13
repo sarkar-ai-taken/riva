@@ -220,8 +220,20 @@ class TestComputeForensicStats:
 
     def test_all_success(self):
         invocations = [
-            {"had_backtrack": False, "token_count": 100, "action_count": 5, "success": True, "timestamp": "2026-01-01T10:00:00"},
-            {"had_backtrack": False, "token_count": 200, "action_count": 8, "success": True, "timestamp": "2026-01-01T11:00:00"},
+            {
+                "had_backtrack": False,
+                "token_count": 100,
+                "action_count": 5,
+                "success": True,
+                "timestamp": "2026-01-01T10:00:00",
+            },
+            {
+                "had_backtrack": False,
+                "token_count": 200,
+                "action_count": 8,
+                "success": True,
+                "timestamp": "2026-01-01T11:00:00",
+            },
         ]
         st = compute_forensic_stats(invocations)
         assert st.usage_count == 2
@@ -234,8 +246,20 @@ class TestComputeForensicStats:
 
     def test_mixed_results(self):
         invocations = [
-            {"had_backtrack": True, "token_count": 50, "action_count": 3, "success": False, "timestamp": "2026-01-01T09:00:00"},
-            {"had_backtrack": False, "token_count": 150, "action_count": 6, "success": True, "timestamp": "2026-01-01T10:00:00"},
+            {
+                "had_backtrack": True,
+                "token_count": 50,
+                "action_count": 3,
+                "success": False,
+                "timestamp": "2026-01-01T09:00:00",
+            },
+            {
+                "had_backtrack": False,
+                "token_count": 150,
+                "action_count": 6,
+                "success": True,
+                "timestamp": "2026-01-01T10:00:00",
+            },
         ]
         st = compute_forensic_stats(invocations)
         assert st.usage_count == 2

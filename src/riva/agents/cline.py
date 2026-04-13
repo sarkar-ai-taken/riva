@@ -77,7 +77,6 @@ class ClineDetector(AgentDetector):
         config["installed"] = self.is_installed()
         return config
 
-
     def write_skill(self, skill, workspace=None):
         """Append a skill section to .clinerules in the target workspace."""
         base = Path(workspace) if workspace else Path.cwd()
@@ -119,15 +118,17 @@ class ClineDetector(AgentDetector):
                         description = stripped[:120]
                         break
                 skill_id = "cline-rules" if workspace is None else "cline-project-rules"
-                skills.append(Skill(
-                    id=skill_id,
-                    name=".clinerules",
-                    description=description,
-                    agent=self.agent_name,
-                    invocation=None,
-                    tags=["rule"],
-                    workspace=workspace,
-                ))
+                skills.append(
+                    Skill(
+                        id=skill_id,
+                        name=".clinerules",
+                        description=description,
+                        agent=self.agent_name,
+                        invocation=None,
+                        tags=["rule"],
+                        workspace=workspace,
+                    )
+                )
             except OSError:
                 pass
 

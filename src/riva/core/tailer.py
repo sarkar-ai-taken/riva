@@ -52,8 +52,8 @@ class SessionTailer:
 
     def __init__(self, storage: "RivaStorage") -> None:
         self._storage = storage
-        self._states: dict[str, _FileState] = {}   # path_str -> _FileState
-        self._state_access: dict[str, float] = {}   # path_str -> last access time (for eviction)
+        self._states: dict[str, _FileState] = {}  # path_str -> _FileState
+        self._state_access: dict[str, float] = {}  # path_str -> last access time (for eviction)
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -67,9 +67,7 @@ class SessionTailer:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._run, name="riva-session-tailer", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="riva-session-tailer", daemon=True)
         self._thread.start()
         logger.debug("SessionTailer started")
 
@@ -211,6 +209,7 @@ class SessionTailer:
         if raw_ts:
             try:
                 from datetime import datetime, timezone
+
                 dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
                 ts = dt.timestamp()
             except (ValueError, TypeError):
