@@ -1,5 +1,15 @@
 # Release History
 
+## v0.3.16 (2026-04-13)
+
+### Bug fix: Segfault on macOS from multi-threaded SQLite access
+
+- **Fixed segmentation fault** caused by sharing a single `sqlite3.Connection` across the main dashboard thread and the `SessionTailer` background thread introduced in v0.3.15
+- `RivaStorage` now uses `threading.local()` for per-thread connections instead of a shared connection with `check_same_thread=False`
+- SQLite WAL mode continues to handle concurrent file-level access safely; the fix ensures each thread owns its own connection object, preventing C-level memory corruption in Python's `sqlite3` module
+
+---
+
 ## v0.3.15 (2026-04-11)
 
 ### Cross-agent Skill Export
