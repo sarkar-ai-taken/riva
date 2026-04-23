@@ -1,5 +1,40 @@
 # Release History
 
+## v0.3.17 (2026-04-22)
+
+### New: Claude Desktop detector
+
+Riva now detects the Claude Desktop app (Electron) alongside the existing Claude Code CLI detector — the two coexist cleanly because matching is case-sensitive (`Claude` vs `claude`).
+
+- **macOS**: recognizes `/Applications/Claude.app` plus the `Claude`, `Claude Helper`, `Claude Helper (Renderer)` / `(GPU)` / `(Plugin)` processes; also matches any Electron child whose `--user-data-dir` points at `~/Library/Application Support/Claude`.
+- **Windows / Linux**: matches `Claude.exe` / `Claude` and checks `%APPDATA%\Claude\` / `~/.config/Claude/`.
+- **Config surface**: reads `claude_desktop_config.json` (MCP server names + preferences, secrets filtered) and `config.json` (with noisy `dxt:allowlistCache*` keys dropped).
+- **Skills surface**: parses `<config_dir>/local-agent-mode-sessions/skills-plugin/*/*/skills/*/SKILL.md` with YAML-frontmatter parsing, deduplicated across orgs/plugins.
+
+### Lazy-load for TUI dashboard
+
+The Skills, Events, and Forensic-summary panes used to re-scan the filesystem and query the database on every 1-second render. Now they're fetched by a daemon thread behind a `_LazyCache`, so re-renders are instant and the first paint shows "Loading…" instead of blocking.
+
+- `src/riva/tui/dashboard.py`: new `_LazyCache` TTL refresher (skills: 15s, events: 5s, forensic: 30s).
+- `parse_session()` gained an optional `max_lines` parameter (`src/riva/core/forensic.py`).
+- `/api/forensic/trends` now caps per-session parsing at 800 JSONL events so aggregate trends don't load entire multi-MB session files.
+
+### Hardening: `_get_version` resilience (fixes `riva tray` crash)
+
+`importlib.metadata.version("riva")` can silently return `None` on a half-installed dist-info (e.g. files suffixed with macOS's " 2" duplicate-conflict naming). That `None` previously flowed into `subprocess.Popen`, crashing `riva tray` with a confusing `TypeError: expected str, bytes or os.PathLike object, not NoneType`. `_get_version()` now returns `"unknown"` whenever metadata is absent or unreadable.
+
+### Test coverage
+
+- `riva.core.skills`: **71% → 100%** — every branch of `export_skill_to_agent` is now exercised, plus previously-untested exception paths in the load functions.
+- Claude Desktop detector: 15 new tests covering process matching, config parsing, skill discovery, and the critical "does not match lowercase `claude` CLI" invariant.
+- Test suite: 694 → 710 passing.
+
+### Misc
+
+- `SECURITY.md` email domain: `security@sarkar-ai.com` → `security@sarkar.ai`.
+
+---
+
 ## v0.3.16 (2026-04-13)
 
 ### Bug fix: Segfault on macOS from multi-threaded SQLite access

@@ -20,6 +20,7 @@ from riva.core.skills import (
     SkillForensicStats,
     _parse_skills_toml,
     compute_forensic_stats,
+    export_skill_to_agent,
     export_skills_toml,
     load_global_skills,
     load_workspace_skills,
@@ -204,6 +205,15 @@ class TestLoadSave:
         (tmp_path / "skills.toml").write_text("not valid toml [[[")
         skills = load_workspace_skills(tmp_path)
         assert skills == []
+
+    def test_load_workspace_skills_none_dir(self):
+        assert load_workspace_skills(None) == []
+
+    def test_load_global_bad_toml(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".riva").mkdir()
+        (tmp_path / ".riva" / "skills.toml").write_text("not valid toml [[[")
+        assert load_global_skills() == []
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +521,27 @@ class TestTurnSkillIdParsed:
         sess = parse_session(f)
         assert sess.turns[0].skill_id is None
 
+    def test_parse_session_max_lines_caps_read(self, tmp_path):
+        """parse_session(max_lines=N) should stop after N JSONL events."""
+        import json as _json
+
+        from riva.core.forensic import parse_session
+
+        events = [
+            {
+                "type": "user",
+                "message": {"role": "user", "content": f"prompt {i}"},
+                "timestamp": f"2026-03-01T10:00:{i:02d}Z",
+            }
+            for i in range(10)
+        ]
+        f = tmp_path / "session.jsonl"
+        f.write_text("\n".join(_json.dumps(e) for e in events))
+        capped = parse_session(f, max_lines=3)
+        full = parse_session(f)
+        assert len(capped.turns) == 3
+        assert len(full.turns) == 10
+
 
 # ---------------------------------------------------------------------------
 # Claude Code parse_skills
@@ -736,3 +767,203 @@ class TestSkillsCLI:
         result = self.invoke("skills", "share", "nonexistent")
         assert result.exit_code == 0
         assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# export_skill_to_agent
+# ---------------------------------------------------------------------------
+
+
+class _FakeDetector:
+    """Minimal stand-in for an AgentDetector used by export_skill_to_agent."""
+
+    def __init__(
+        self,
+        agent_name: str,
+        skills: list[Skill] | None = None,
+        installed: bool = True,
+        parse_raises: bool = False,
+        write_raises: Exception | None = None,
+        write_path: Path | None = None,
+    ):
+        self._agent_name = agent_name
+        self._skills = skills or []
+        self._installed = installed
+        self._parse_raises = parse_raises
+        self._write_raises = write_raises
+        self._write_path = write_path
+        self.last_write_call: tuple[Skill, Path] | None = None
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent_name
+
+    def is_installed(self) -> bool:
+        return self._installed
+
+    def parse_skills(self) -> list[Skill]:
+        if self._parse_raises:
+            raise RuntimeError("boom")
+        return self._skills
+
+    def write_skill(self, skill, workspace):
+        self.last_write_call = (skill, workspace)
+        if self._write_raises is not None:
+            raise self._write_raises
+        return self._write_path or (workspace / f"{skill.id}.md")
+
+
+class _FakeRegistry:
+    def __init__(self, detectors):
+        self._detectors = detectors
+
+    @property
+    def detectors(self):
+        return list(self._detectors)
+
+
+@pytest.fixture
+def patch_registry(monkeypatch):
+    """Return a helper that installs a fake registry for export_skill_to_agent."""
+
+    def _install(detectors):
+        fake = _FakeRegistry(detectors)
+        monkeypatch.setattr(
+            "riva.agents.registry.get_default_registry",
+            lambda workspace_dir=None: fake,
+        )
+        return fake
+
+    return _install
+
+
+class TestExportSkillToAgent:
+    def test_skill_not_found(self, patch_registry, tmp_path):
+        patch_registry([_FakeDetector("Claude Code", skills=[])])
+        ok, msg = export_skill_to_agent("missing", str(tmp_path))
+        assert ok is False
+        assert "not found in any agent" in msg
+
+    def test_skips_uninstalled_detector(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector("Claude Code", skills=[sk], installed=False),
+                _FakeDetector("Cursor", skills=[]),
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is False
+        assert "not found in any agent" in msg
+
+    def test_parse_skills_exception_is_swallowed(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector("Claude Code", parse_raises=True),
+                _FakeDetector("Cursor", skills=[sk], write_path=tmp_path / "out.md"),
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is True
+        assert "Cursor" in msg
+
+    def test_source_agent_filter_no_match(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector("Claude Code", skills=[sk]),
+                _FakeDetector("Cursor", skills=[sk]),
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path), source_agent="Kiro")
+        assert ok is False
+        assert "not found in Kiro" in msg
+        assert "Claude Code" in msg and "Cursor" in msg
+
+    def test_multiple_matches_without_source_agent(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector("Claude Code", skills=[sk]),
+                _FakeDetector("Cursor", skills=[sk]),
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is False
+        assert "multiple agents" in msg
+        assert "use --from" in msg.lower()
+
+    def test_source_agent_filter_with_match(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        written = tmp_path / "commit.md"
+        cursor = _FakeDetector("Cursor", skills=[sk], write_path=written)
+        patch_registry([_FakeDetector("Claude Code", skills=[sk]), cursor])
+        ok, msg = export_skill_to_agent("commit", str(tmp_path), source_agent="cursor")
+        assert ok is True
+        assert str(written) in msg
+        assert cursor.last_write_call is not None
+
+    def test_match_by_name_not_id(self, patch_registry, tmp_path):
+        sk = Skill(id="c1", name="commit")
+        patch_registry([_FakeDetector("Claude Code", skills=[sk])])
+        ok, _ = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is True
+
+    def test_target_agent_unknown(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry([_FakeDetector("Claude Code", skills=[sk])])
+        ok, msg = export_skill_to_agent("commit", str(tmp_path), target_agent="Nope")
+        assert ok is False
+        assert "Unknown target agent" in msg
+
+    def test_target_agent_key_matches_by_lowercase_name(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        written = tmp_path / "out.md"
+        patch_registry([_FakeDetector("Claude Code", skills=[sk], write_path=written)])
+        # "claude code" (with space) should still match agent_name "Claude Code"
+        ok, msg = export_skill_to_agent("commit", str(tmp_path), target_agent="claude code")
+        assert ok is True
+        assert str(written) in msg
+
+    def test_write_skill_not_implemented(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector(
+                    "Claude Code",
+                    skills=[sk],
+                    write_raises=NotImplementedError("no export"),
+                )
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is False
+        assert "no export" in msg
+
+    def test_write_skill_os_error(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        patch_registry(
+            [
+                _FakeDetector(
+                    "Claude Code",
+                    skills=[sk],
+                    write_raises=OSError("disk full"),
+                )
+            ]
+        )
+        ok, msg = export_skill_to_agent("commit", str(tmp_path))
+        assert ok is False
+        assert "Failed to write" in msg
+        assert "disk full" in msg
+
+    def test_cross_agent_export_uses_target_detector(self, patch_registry, tmp_path):
+        sk = Skill(id="commit", name="commit")
+        cc = _FakeDetector("Claude Code", skills=[sk])
+        cursor = _FakeDetector("Cursor", skills=[], write_path=tmp_path / "cursor.md")
+        patch_registry([cc, cursor])
+        ok, msg = export_skill_to_agent("commit", str(tmp_path), target_agent="cursor")
+        assert ok is True
+        assert cursor.last_write_call is not None
+        assert cc.last_write_call is None
+        assert "Claude Code" in msg  # source agent mentioned in success message

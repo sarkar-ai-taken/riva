@@ -23,10 +23,19 @@ from riva.tui.components import (
 
 
 def _get_version() -> str:
-    """Read version from package metadata."""
-    from importlib.metadata import version
+    """Read version from package metadata.
 
-    return version("riva")
+    Falls back to ``"unknown"`` if the distribution is missing or its metadata
+    is unreadable — e.g. a half-installed dist-info where Python's metadata
+    reader returns ``None`` instead of a string.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        v = version("riva")
+    except PackageNotFoundError:
+        return "unknown"
+    return v if isinstance(v, str) and v else "unknown"
 
 
 _MCP_HELP = """\

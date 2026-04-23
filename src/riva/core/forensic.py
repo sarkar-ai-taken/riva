@@ -375,8 +375,12 @@ def resolve_session(identifier: str, config_dir: Path | None = None) -> Path | N
 # ---------------------------------------------------------------------------
 
 
-def parse_session(file_path: Path | str) -> ForensicSession:
-    """Parse a Claude Code session JSONL into a ForensicSession."""
+def parse_session(file_path: Path | str, max_lines: int = 0) -> ForensicSession:
+    """Parse a Claude Code session JSONL into a ForensicSession.
+
+    ``max_lines=0`` reads the whole file; pass a positive value to cap reads
+    for aggregate views (e.g. trends) that don't need full per-turn detail.
+    """
     file_path = Path(file_path)
 
     session = ForensicSession(
@@ -385,7 +389,7 @@ def parse_session(file_path: Path | str) -> ForensicSession:
         project=file_path.parent.name,
     )
 
-    events = list(stream_jsonl(file_path))
+    events = list(stream_jsonl(file_path, max_lines=max_lines))
     if not events:
         return session
 
