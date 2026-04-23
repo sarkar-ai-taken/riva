@@ -6,8 +6,9 @@ import select
 import sys
 import termios
 import threading
+import time
 import tty
-from typing import Literal
+from typing import Callable, Literal
 
 from rich.columns import Columns
 from rich.console import Console
@@ -91,6 +92,104 @@ class _KeyReader:
                 termios.tcsetattr(fd, termios.TCSADRAIN, self._old_settings)
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Background lazy-loader
+# ---------------------------------------------------------------------------
+
+
+class _LazyCache:
+    """Refresh *fetch_fn* in a background thread; return the last value now.
+
+    On the very first call the value is ``None`` and a background fetch is
+    scheduled; callers should render a loading placeholder.  Subsequent calls
+    return the cached value immediately, and a refresh runs in the background
+    once ``ttl`` seconds have elapsed since the last successful fetch.
+    """
+
+    def __init__(self, fetch_fn: Callable[[], object], ttl: float = 10.0) -> None:
+        self._fetch = fetch_fn
+        self._ttl = ttl
+        self._value: object | None = None
+        self._last_fetch: float = 0.0
+        self._lock = threading.Lock()
+        self._in_flight = False
+
+    def get(self) -> object | None:
+        with self._lock:
+            stale = (time.time() - self._last_fetch) > self._ttl
+            if stale and not self._in_flight:
+                self._in_flight = True
+                threading.Thread(target=self._refresh, daemon=True).start()
+            return self._value
+
+    def _refresh(self) -> None:
+        try:
+            new_value = self._fetch()
+        except Exception:
+            new_value = self._value  # keep prior value on failure
+        with self._lock:
+            self._value = new_value
+            self._last_fetch = time.time()
+            self._in_flight = False
+
+
+# Module-level caches — the dashboard runs one monitor at a time, so per-monitor
+# identity is enough to avoid cross-run leakage between tests.
+_skills_cache: tuple[int, _LazyCache] | None = None
+_events_cache: tuple[int, _LazyCache] | None = None
+_forensic_cache: _LazyCache | None = None
+
+
+def _get_skills_cache(monitor: ResourceMonitor) -> _LazyCache:
+    global _skills_cache
+    if _skills_cache is None or _skills_cache[0] != id(monitor):
+        _skills_cache = (id(monitor), _LazyCache(lambda: _collect_skills(monitor), ttl=15.0))
+    return _skills_cache[1]
+
+
+def _get_events_cache(monitor: ResourceMonitor) -> _LazyCache:
+    global _events_cache
+    if _events_cache is None or _events_cache[0] != id(monitor):
+        _events_cache = (id(monitor), _LazyCache(lambda: _fetch_events(monitor), ttl=5.0))
+    return _events_cache[1]
+
+
+def _get_forensic_cache() -> _LazyCache:
+    global _forensic_cache
+    if _forensic_cache is None:
+        _forensic_cache = _LazyCache(_fetch_forensic_sessions, ttl=30.0)
+    return _forensic_cache
+
+
+def _fetch_events(monitor: ResourceMonitor) -> list[dict]:
+    storage = monitor.storage
+    if not storage:
+        return []
+    try:
+        return storage.get_hook_events(hours=1.0, limit=200)
+    except Exception:
+        return []
+
+
+def _fetch_forensic_sessions() -> list[dict]:
+    try:
+        from riva.core.forensic import discover_sessions
+
+        return discover_sessions(limit=5)
+    except Exception:
+        return []
+
+
+def _loading_panel(title: str) -> Panel:
+    return Panel(
+        "[dim]Loading…[/dim]",
+        title=title,
+        title_align="left",
+        border_style="dim",
+        padding=(0, 1),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +284,9 @@ def _build_usage_summary(monitor: ResourceMonitor) -> Panel:
 
 
 def _build_forensic_summary() -> Panel:
-    try:
-        from riva.core.forensic import discover_sessions
-
-        sessions = discover_sessions(limit=5)
-    except Exception:
-        sessions = []
+    sessions = _get_forensic_cache().get()
+    if sessions is None:
+        return _loading_panel("Recent Sessions")
     return build_forensic_panel(sessions)
 
 
@@ -256,7 +352,7 @@ def _build_main_layout(monitor: ResourceMonitor) -> Layout:
 
 
 def _build_skills_layout(monitor: ResourceMonitor) -> Layout:
-    skills = _collect_skills(monitor)
+    skills = _get_skills_cache(monitor).get()
 
     layout = Layout()
     layout.split_column(
@@ -273,7 +369,10 @@ def _build_skills_layout(monitor: ResourceMonitor) -> Layout:
         Layout(name="hint", size=3),
     )
 
-    body["skills_table"].update(build_skills_panel(skills if skills else None))
+    if skills is None:
+        body["skills_table"].update(_loading_panel("Skills"))
+    else:
+        body["skills_table"].update(build_skills_panel(skills if skills else None))
     body["hint"].update(
         Panel(
             "[dim]Run [bold]riva skills scan --all-sessions[/bold] to populate stats from session history.  "
@@ -304,20 +403,17 @@ def _build_events_layout(monitor: ResourceMonitor) -> Layout:
     layout["header"].update(_build_header("events"))
     layout["footer"].update(_build_footer("events"))
 
-    events: list[dict] = []
-    storage = monitor.storage
-    if storage:
-        try:
-            events = storage.get_hook_events(hours=1.0, limit=200)
-        except Exception:
-            pass
+    events = _get_events_cache(monitor).get()
 
     body = Layout()
     body.split_column(
         Layout(name="stream"),
         Layout(name="hint", size=3),
     )
-    body["stream"].update(build_hook_events_panel(events if events else None, max_rows=40))
+    if events is None:
+        body["stream"].update(_loading_panel("Events"))
+    else:
+        body["stream"].update(build_hook_events_panel(events if events else None, max_rows=40))
     body["hint"].update(
         Panel(
             "[dim]Showing last 1 h of events from Claude Code hooks, JSONL tail-watching, and OTLP receivers.  "
@@ -351,8 +447,6 @@ def run_dashboard(monitor: ResourceMonitor | None = None) -> None:
 
     console = Console()
     monitor.start()
-
-    import time
 
     time.sleep(1)  # let first scan complete
     try:

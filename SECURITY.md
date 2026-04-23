@@ -6,7 +6,7 @@ If you discover a security vulnerability in Riva, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email: **security@sarkar-ai.com**
+Instead, please email: **security@sarkar.ai**
 
 Include:
 

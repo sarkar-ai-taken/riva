@@ -427,7 +427,7 @@ def create_app(auth_token: str | None = None) -> Flask:
             parsed = []
             for s in session_list[:limit]:
                 try:
-                    parsed.append(parse_session(s["file_path"]))
+                    parsed.append(parse_session(s["file_path"], max_lines=800))
                 except Exception:
                     continue
 

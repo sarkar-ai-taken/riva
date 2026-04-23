@@ -44,6 +44,7 @@ def register_agent(cls_or_fn):
 
 _BUILTIN_MODULES = [
     "riva.agents.claude_code",
+    "riva.agents.claude_desktop",
     "riva.agents.codex_cli",
     "riva.agents.gemini_cli",
     "riva.agents.openclaw",

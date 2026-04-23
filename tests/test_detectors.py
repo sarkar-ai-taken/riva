@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from riva.agents.autogen import AutoGenDetector
 from riva.agents.claude_code import ClaudeCodeDetector
+from riva.agents.claude_desktop import ClaudeDesktopDetector
 from riva.agents.codex_cli import CodexCLIDetector
 from riva.agents.crewai import CrewAIDetector
 from riva.agents.gemini_cli import GeminiCLIDetector
@@ -74,6 +75,178 @@ class TestClaudeCodeDetector:
 
         d = create_detector()
         assert d.agent_name == "Claude Code"
+
+
+# ---------------------------------------------------------------------------
+# Claude Desktop
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeDesktopDetector:
+    def test_properties(self):
+        d = ClaudeDesktopDetector()
+        assert d.agent_name == "Claude Desktop"
+        assert "Claude" in d.binary_names
+        assert "Claude Helper" in d.binary_names
+        # Must NOT include lowercase "claude" — that's the Claude Code CLI.
+        assert "claude" not in d.binary_names
+        assert d.api_domain == "api.anthropic.com"
+
+    def test_match_by_app_process_name(self):
+        d = ClaudeDesktopDetector()
+        assert d.match_process("Claude", [], "") is True
+        assert d.match_process("Claude Helper", [], "") is True
+        assert d.match_process("Claude Helper (Renderer)", [], "") is True
+
+    def test_match_by_app_bundle_exe(self):
+        d = ClaudeDesktopDetector()
+        assert (
+            d.match_process(
+                "",
+                [],
+                "/Applications/Claude.app/Contents/MacOS/Claude",
+            )
+            is True
+        )
+
+    def test_match_by_user_data_dir_cmdline(self):
+        d = ClaudeDesktopDetector()
+        cmdline = [
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper",
+            "--user-data-dir=/Users/x/Library/Application Support/Claude",
+        ]
+        assert d.match_process("SomeHelper", cmdline, "") is True
+
+    def test_no_match_on_claude_code_cli(self):
+        """The lowercase ``claude`` CLI must be owned by the Claude Code detector."""
+        d = ClaudeDesktopDetector()
+        assert d.match_process("claude", ["claude", "chat"], "/usr/local/bin/claude") is False
+
+    def test_is_installed_via_config_dir(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        cfg = tmp_path / "Claude"
+        cfg.mkdir()
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: cfg),
+        ):
+            with patch.object(ClaudeDesktopDetector, "_app_bundle_path", return_value=None):
+                assert d.is_installed() is True
+
+    def test_is_installed_false_when_missing(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path / "nope"),
+        ):
+            with patch.object(ClaudeDesktopDetector, "_app_bundle_path", return_value=None):
+                assert d.is_installed() is False
+
+    def test_parse_config_reads_mcp_and_preferences(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        mcp = {
+            "mcpServers": {"slack": {"command": "slack-mcp"}, "github": {"command": "gh-mcp"}},
+            "preferences": {"sidebarMode": "task", "api_key": "sk-secret"},
+        }
+        (tmp_path / "claude_desktop_config.json").write_text(json.dumps(mcp))
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            cfg = d.parse_config()
+            assert cfg["mcp_servers"] == ["github", "slack"]
+            assert cfg["preferences"]["sidebarMode"] == "task"
+            # Secrets filtered out
+            assert "api_key" not in cfg["preferences"]
+
+    def test_parse_config_drops_dxt_cache_noise(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        settings = {
+            "locale": "en-US",
+            "dxt:allowlistCache": "djEw8N...",
+            "dxt:allowlistLastUpdated": "2026-03-08",
+        }
+        (tmp_path / "config.json").write_text(json.dumps(settings))
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            cfg = d.parse_config()
+            assert cfg["settings"]["locale"] == "en-US"
+            assert "dxt:allowlistCache" not in cfg["settings"]
+
+    def test_parse_config_handles_bad_json(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        (tmp_path / "claude_desktop_config.json").write_text("not json {{{")
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            cfg = d.parse_config()
+            assert cfg["_error"] == "Could not parse claude_desktop_config.json"
+
+    def test_parse_skills_no_plugin_dir(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            assert d.parse_skills() == []
+
+    def test_parse_skills_reads_frontmatter(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        base = tmp_path / "local-agent-mode-sessions" / "skills-plugin" / "org-uuid" / "plugin-uuid" / "skills"
+        (base / "xlsx").mkdir(parents=True)
+        (base / "xlsx" / "SKILL.md").write_text(
+            '---\nname: xlsx\ndescription: "Spreadsheet skill for xlsx files"\n---\n\n# Body\n'
+        )
+        (base / "pdf").mkdir()
+        (base / "pdf" / "SKILL.md").write_text("---\nname: pdf\ndescription: PDF manipulation\n---\n")
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            skills = d.parse_skills()
+            by_id = {s.id: s for s in skills}
+            assert "xlsx" in by_id
+            assert by_id["xlsx"].name == "xlsx"
+            assert by_id["xlsx"].description == "Spreadsheet skill for xlsx files"
+            assert by_id["xlsx"].agent == "Claude Desktop"
+            assert by_id["xlsx"].tags == ["skill"]
+            assert by_id["pdf"].description == "PDF manipulation"
+
+    def test_parse_skills_deduplicates_across_orgs(self, tmp_path):
+        d = ClaudeDesktopDetector()
+        plugin_root = tmp_path / "local-agent-mode-sessions" / "skills-plugin"
+        for org in ("org-a", "org-b"):
+            skill = plugin_root / org / "plugin-1" / "skills" / "xlsx"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: xlsx\ndescription: dup\n---\n")
+        with patch.object(
+            type(d),
+            "config_dir",
+            new_callable=lambda: property(lambda self: tmp_path),
+        ):
+            skills = d.parse_skills()
+            assert len(skills) == 1
+
+    def test_create_detector(self):
+        from riva.agents.claude_desktop import create_detector
+
+        d = create_detector()
+        assert d.agent_name == "Claude Desktop"
+
+    def test_registered_in_builtins(self):
+        from riva.agents.registry import _BUILTIN_MODULES
+
+        assert "riva.agents.claude_desktop" in _BUILTIN_MODULES
 
 
 # ---------------------------------------------------------------------------
