@@ -8,7 +8,7 @@ import termios
 import threading
 import time
 import tty
-from typing import Callable, Literal
+from typing import Callable, Generic, Literal, TypeVar
 
 from rich.columns import Columns
 from rich.console import Console
@@ -99,7 +99,10 @@ class _KeyReader:
 # ---------------------------------------------------------------------------
 
 
-class _LazyCache:
+T = TypeVar("T")
+
+
+class _LazyCache(Generic[T]):
     """Refresh *fetch_fn* in a background thread; return the last value now.
 
     On the very first call the value is ``None`` and a background fetch is
@@ -108,15 +111,15 @@ class _LazyCache:
     once ``ttl`` seconds have elapsed since the last successful fetch.
     """
 
-    def __init__(self, fetch_fn: Callable[[], object], ttl: float = 10.0) -> None:
+    def __init__(self, fetch_fn: Callable[[], T], ttl: float = 10.0) -> None:
         self._fetch = fetch_fn
         self._ttl = ttl
-        self._value: object | None = None
+        self._value: T | None = None
         self._last_fetch: float = 0.0
         self._lock = threading.Lock()
         self._in_flight = False
 
-    def get(self) -> object | None:
+    def get(self) -> T | None:
         with self._lock:
             stale = (time.time() - self._last_fetch) > self._ttl
             if stale and not self._in_flight:
@@ -126,7 +129,7 @@ class _LazyCache:
 
     def _refresh(self) -> None:
         try:
-            new_value = self._fetch()
+            new_value: T | None = self._fetch()
         except Exception:
             new_value = self._value  # keep prior value on failure
         with self._lock:
@@ -137,26 +140,26 @@ class _LazyCache:
 
 # Module-level caches — the dashboard runs one monitor at a time, so per-monitor
 # identity is enough to avoid cross-run leakage between tests.
-_skills_cache: tuple[int, _LazyCache] | None = None
-_events_cache: tuple[int, _LazyCache] | None = None
-_forensic_cache: _LazyCache | None = None
+_skills_cache: tuple[int, _LazyCache[list]] | None = None
+_events_cache: tuple[int, _LazyCache[list[dict]]] | None = None
+_forensic_cache: _LazyCache[list[dict]] | None = None
 
 
-def _get_skills_cache(monitor: ResourceMonitor) -> _LazyCache:
+def _get_skills_cache(monitor: ResourceMonitor) -> _LazyCache[list]:
     global _skills_cache
     if _skills_cache is None or _skills_cache[0] != id(monitor):
         _skills_cache = (id(monitor), _LazyCache(lambda: _collect_skills(monitor), ttl=15.0))
     return _skills_cache[1]
 
 
-def _get_events_cache(monitor: ResourceMonitor) -> _LazyCache:
+def _get_events_cache(monitor: ResourceMonitor) -> _LazyCache[list[dict]]:
     global _events_cache
     if _events_cache is None or _events_cache[0] != id(monitor):
         _events_cache = (id(monitor), _LazyCache(lambda: _fetch_events(monitor), ttl=5.0))
     return _events_cache[1]
 
 
-def _get_forensic_cache() -> _LazyCache:
+def _get_forensic_cache() -> _LazyCache[list[dict]]:
     global _forensic_cache
     if _forensic_cache is None:
         _forensic_cache = _LazyCache(_fetch_forensic_sessions, ttl=30.0)
