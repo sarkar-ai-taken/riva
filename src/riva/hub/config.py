@@ -68,3 +68,45 @@ def get_client_id() -> str:
 def get_endpoint() -> str:
     raw = _read_raw()
     return raw.get("endpoint", HUB_ENDPOINT)
+
+
+# ---------------------------------------------------------------------------
+# Server registration — riva connect / riva report
+#
+# Stored in the same hub.toml under a separate set of keys:
+#   server_url    = "https://riva-server.example/api/v1"
+#   device_id     = "<uuid>"
+#   device_token  = "<opaque secret>"
+# ---------------------------------------------------------------------------
+
+
+def get_server_url() -> str | None:
+    return _read_raw().get("server_url") or None
+
+
+def get_device_id() -> str | None:
+    return _read_raw().get("device_id") or None
+
+
+def get_device_token() -> str | None:
+    return _read_raw().get("device_token") or None
+
+
+def set_server_credentials(server_url: str, device_id: str, device_token: str) -> None:
+    raw = _read_raw()
+    raw["server_url"] = server_url.rstrip("/")
+    raw["device_id"] = device_id
+    raw["device_token"] = device_token
+    _write_raw(raw)
+
+
+def clear_server_credentials() -> None:
+    raw = _read_raw()
+    for k in ("server_url", "device_id", "device_token"):
+        raw.pop(k, None)
+    _write_raw(raw)
+
+
+def is_connected() -> bool:
+    raw = _read_raw()
+    return bool(raw.get("server_url") and raw.get("device_id") and raw.get("device_token"))

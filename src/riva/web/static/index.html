@@ -389,6 +389,39 @@
   </main>
 </div>
 
+<script>
+  // Default API base — overridden by an embedding parent (e.g. Riva Server)
+  // via postMessage('riva:configure', { apiBase, accessToken }).
+  window.RIVA_API_BASE = window.RIVA_API_BASE || '/api';
+  window.RIVA_ACCESS_TOKEN = window.RIVA_ACCESS_TOKEN || null;
+  window.rivaApiUrl = function(path) {
+    return window.RIVA_API_BASE.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path);
+  };
+
+  // Wrap fetch so an injected access token gets sent on /api requests.
+  (function() {
+    var originalFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+      init = init || {};
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (window.RIVA_ACCESS_TOKEN && url.indexOf(window.RIVA_API_BASE) === 0) {
+        var headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', 'Bearer ' + window.RIVA_ACCESS_TOKEN);
+        }
+        init.headers = headers;
+      }
+      return originalFetch(input, init);
+    };
+  })();
+
+  // Embed handshake — parent frame can configure us.
+  window.addEventListener('message', function(ev) {
+    if (!ev.data || ev.data.type !== 'riva:configure') return;
+    if (ev.data.apiBase) window.RIVA_API_BASE = ev.data.apiBase;
+    if (ev.data.accessToken !== undefined) window.RIVA_ACCESS_TOKEN = ev.data.accessToken;
+  });
+</script>
 <script src="/static/js/utils.js"></script>
 <script src="/static/js/render.js"></script>
 <script src="/static/js/timeline.js"></script>

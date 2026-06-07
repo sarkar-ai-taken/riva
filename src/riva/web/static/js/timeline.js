@@ -61,7 +61,7 @@
 
   async function fetchTimeline() {
     try {
-      var res = await fetch('/api/timeline?hours=1&bucket=60');
+      var res = await fetch(window.rivaApiUrl('/timeline?hours=1&bucket=60'));
       if (!res.ok) return;
       var data = await res.json();
       var buckets = data.buckets || [];
@@ -80,7 +80,7 @@
 
   async function replayAt(ts) {
     try {
-      var res = await fetch('/api/replay?t=' + ts);
+      var res = await fetch(window.rivaApiUrl('/replay?t=' + ts));
       if (!res.ok) return;
       var data = await res.json();
 

@@ -2603,6 +2603,83 @@ def skills_send(skill_name: str, target_workspace: str, source_agent: str | None
 
 
 # ---------------------------------------------------------------------------
+# Server connect / report — push metrics to a Riva Server
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("register_token")
+@click.option("--server", "server_url", default=None, help="Server base URL (default: hosted Riva).")
+def connect(register_token: str, server_url: str | None) -> None:
+    """Pair this machine with a Riva Server account using a registration token.
+
+    Get a token from the web dashboard's "Add device" page, then run:
+
+        riva connect <token>
+    """
+    from riva.hub.connect import RegistrationError, register_device
+
+    console = Console()
+    try:
+        data = register_device(register_token, server_url=server_url)
+    except RegistrationError as e:
+        console.print(f"[red]Registration failed:[/red] {e}")
+        raise SystemExit(1) from e
+
+    console.print(f"[green]Connected.[/green] device_id={data['device_id']}")
+    console.print(
+        "Run [bold]riva report[/bold] to push a snapshot, or [bold]riva report --watch[/bold] to keep pushing."
+    )
+
+
+@cli.command()
+@click.option("--watch", is_flag=True, help="Keep pushing snapshots every --interval seconds.")
+@click.option("--interval", default=30.0, type=float, help="Seconds between snapshots when --watch.")
+def report(watch: bool, interval: float) -> None:
+    """Push a metrics snapshot to the connected Riva Server."""
+    from riva.hub.config import get_device_id, get_server_url, is_connected
+    from riva.hub.reporter import report_once, start_background
+
+    console = Console()
+    if not is_connected():
+        console.print("[red]Not connected.[/red] Run `riva connect <token>` first.")
+        raise SystemExit(1)
+
+    if not watch:
+        try:
+            report_once()
+        except Exception as e:
+            console.print(f"[red]Report failed:[/red] {e}")
+            raise SystemExit(1) from e
+        console.print(f"[green]Snapshot pushed[/green] to {get_server_url()} (device {get_device_id()}).")
+        return
+
+    console.print(f"[dim]Pushing every {interval}s. Ctrl-C to stop.[/dim]")
+    stop = start_background(interval=interval)
+    try:
+        while True:
+            import time as _t
+
+            _t.sleep(3600)
+    except KeyboardInterrupt:
+        stop.set()
+        console.print("[dim]Stopped.[/dim]")
+
+
+@cli.command()
+def disconnect() -> None:
+    """Forget the connected Riva Server credentials."""
+    from riva.hub.config import clear_server_credentials, is_connected
+
+    console = Console()
+    if not is_connected():
+        console.print("[dim]Not connected — nothing to do.[/dim]")
+        return
+    clear_server_credentials()
+    console.print("[green]Disconnected.[/green] Server credentials removed from hub.toml.")
+
+
+# ---------------------------------------------------------------------------
 # Hooks command group
 # ---------------------------------------------------------------------------
 

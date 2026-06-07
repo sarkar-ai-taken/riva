@@ -412,6 +412,35 @@ Environment variables for the hook script:
 
 ---
 
+### `riva connect` / `riva report` — Push metrics to a Riva Server
+
+Pair a machine with a hosted or self-hosted **Riva Server** and push live metrics to it, so a fleet of devices can be monitored from one dashboard.
+
+```bash
+riva connect <token>            # Pair this machine using a registration token
+riva connect <token> --server https://riva.example/api/v1   # Custom server
+riva report                     # Push a single metrics snapshot
+riva report --watch             # Keep pushing every 30s (background daemon)
+riva report --watch --interval 60   # ...every 60s
+riva disconnect                 # Forget the stored server credentials
+```
+
+1. On the server's web dashboard, open **Add device** and copy the one-time registration token.
+2. Run `riva connect <token>` — Riva exchanges the token for long-lived device credentials and stores them in `~/.config/riva/hub.toml`.
+3. Run `riva report` (one-shot) or `riva report --watch` (continuous) to push snapshots.
+
+Each snapshot mirrors the local `/api/agents` shape (running agents, CPU/memory, uptime, working directory) so the server can re-serve it per-device. Credentials are stored alongside the existing hub config:
+
+| Key | Purpose |
+|---|---|
+| `server_url` | Server API base URL |
+| `device_id` | This device's server-assigned ID |
+| `device_token` | Opaque bearer secret used to authenticate `riva report` |
+
+The static web dashboard is also embeddable: a parent frame can point it at a remote, authenticated API via `postMessage({ type: 'riva:configure', apiBase, accessToken })`.
+
+---
+
 ## Event Stream — Real-time Tool-call Visibility
 
 Riva v0.3.14 adds a unified **event stream** that captures every tool call, session lifecycle event, and agent action in real time. Three ingestion paths feed into one view:

@@ -134,12 +134,12 @@
     if (window.rivaTimeline && window.rivaTimeline.active) return;
     try {
       var fetches = [
-        fetch('/api/agents'),
-        fetch('/api/agents/history')
+        fetch(window.rivaApiUrl('/agents')),
+        fetch(window.rivaApiUrl('/agents/history'))
       ];
       // Also fetch network if on network tab
       if (currentTab === 'network') {
-        fetches.push(fetch('/api/network'));
+        fetches.push(fetch(window.rivaApiUrl('/network')));
       }
 
       var responses = await Promise.all(fetches);
@@ -167,10 +167,10 @@
   async function pollSlow() {
     try {
       var fetches = [
-        fetch('/api/stats'),
-        fetch('/api/env'),
-        fetch('/api/registry'),
-        fetch('/api/config')
+        fetch(window.rivaApiUrl('/stats')),
+        fetch(window.rivaApiUrl('/env')),
+        fetch(window.rivaApiUrl('/registry')),
+        fetch(window.rivaApiUrl('/config'))
       ];
 
       var responses = await Promise.all(fetches);
@@ -183,7 +183,7 @@
       // Fetch historical data for usage tab
       if (currentTab === 'usage') {
         try {
-          var histRes = await fetch('/api/history?hours=1');
+          var histRes = await fetch(window.rivaApiUrl('/history?hours=1'));
           if (histRes.ok) {
             var histData = await histRes.json();
             renderHistoricalChart(histData.snapshots || []);
@@ -194,14 +194,14 @@
       // Fetch forensic data when on forensics tab
       if (currentTab === 'forensics') {
         try {
-          var fSessions = await fetch('/api/forensic/sessions');
+          var fSessions = await fetch(window.rivaApiUrl('/forensic/sessions'));
           if (fSessions.ok) {
             var fData = await fSessions.json();
             renderForensicSessions(fData.sessions || []);
           }
         } catch (e) {}
         try {
-          var fTrends = await fetch('/api/forensic/trends');
+          var fTrends = await fetch(window.rivaApiUrl('/forensic/trends'));
           if (fTrends.ok) {
             var tData = await fTrends.json();
             renderForensicTrends(tData.trends || {});
@@ -212,7 +212,7 @@
       // Fetch skills data when on skills tab
       if (currentTab === 'skills') {
         try {
-          var skRes = await fetch('/api/skills');
+          var skRes = await fetch(window.rivaApiUrl('/skills'));
           if (skRes.ok) {
             var skData = await skRes.json();
             renderSkills(skData.skills || []);
@@ -236,7 +236,7 @@
 
   /* --- Audit Button --- */
   window.runAudit = async function(includeNetwork, clickedBtn) {
-    var url = '/api/audit';
+    var url = window.rivaApiUrl('/audit');
     if (includeNetwork) url += '?network=true';
     var buttons = document.querySelectorAll('.audit-btn');
     try {
@@ -270,7 +270,7 @@
     trendsSection.style.display = 'none';
 
     try {
-      var res = await fetch('/api/forensic/session/' + encodeURIComponent(id));
+      var res = await fetch(window.rivaApiUrl('/forensic/session/' + encodeURIComponent(id)));
       if (res.ok) {
         var data = await res.json();
         renderForensicDetail(data);
@@ -295,7 +295,7 @@
     e.preventDefault();
     var path = link.getAttribute('data-path');
     if (!path) return;
-    fetch('/api/open-file', {
+    fetch(window.rivaApiUrl('/open-file'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: path})
@@ -365,7 +365,7 @@
         if (sourceAgent) body.source_agent = sourceAgent;
         if (targetAgent) body.target_agent = targetAgent;
 
-        var res = await fetch('/api/skills/send', {
+        var res = await fetch(window.rivaApiUrl('/skills/send'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -396,7 +396,7 @@
     if (typeFilter && typeFilter.value) params.set('type_prefix', typeFilter.value);
     if (hoursFilter && hoursFilter.value) params.set('hours', hoursFilter.value);
 
-    var res = await fetch('/api/events?' + params.toString());
+    var res = await fetch(window.rivaApiUrl('/events?' + params.toString()));
     if (res.ok) {
       var data = await res.json();
       renderEvents(data.events || []);
