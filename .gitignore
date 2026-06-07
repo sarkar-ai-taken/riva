@@ -46,3 +46,4 @@ Thumbs.db
 # uv
 uv.lock
 src/riva/*.ini
+Riva_*.pptx

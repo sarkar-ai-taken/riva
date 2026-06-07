@@ -1,5 +1,29 @@
 # Release History
 
+## v0.3.18 (2026-06-06)
+
+### New: Riva Server connect & report
+
+Riva can now pair a machine with a hosted/self-hosted **Riva Server** and push live metrics to it, so a fleet of devices can be monitored from one place.
+
+- **`riva connect <token>`** — exchanges a one-time registration token (minted on the server's web dashboard) for long-lived device credentials and stores them in `~/.config/riva/hub.toml`. Override the target with `--server <url>` (default: `https://riva-server.sarkar.ai/api/v1`).
+- **`riva report`** — pushes a single metrics snapshot (agents + resource stats, mirroring the local `/api/agents` shape) to the connected server. `riva report --watch [--interval N]` keeps pushing on a background daemon thread every *N* seconds (default 30).
+- **`riva disconnect`** — forgets the stored server credentials.
+- New modules: `riva.hub.connect` (device registration) and `riva.hub.reporter` (snapshot building + push loop); credential storage helpers added to `riva.hub.config` (`get/set/clear_server_credentials`, `is_connected`).
+
+### Web dashboard: embeddable bundle
+
+The static WUI can now be embedded by a parent frame (e.g. Riva Server) and pointed at a remote, authenticated API.
+
+- All `fetch('/api/…')` calls go through a new `window.rivaApiUrl()` helper, so the API base is configurable instead of hard-coded.
+- A parent frame can configure the embed via `postMessage({ type: 'riva:configure', apiBase, accessToken })`; an injected access token is automatically attached as a `Bearer` header on `/api` requests.
+
+### Misc
+
+- `.gitignore`: ignore generated `Riva_*.pptx` files.
+
+---
+
 ## v0.3.17 (2026-04-22)
 
 ### New: Claude Desktop detector
