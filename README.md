@@ -14,6 +14,8 @@ Observe, monitor, and control local AI agents running on your machine.
   <a href="https://discord.com/channels/1467923903597908244/1467926078356984110"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/riva?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/riva)
+
 Riva is a **local-first observability and control plane for AI agents**.
 It helps you understand what agents are running on your machine, what they are doing, and how they are behaving in real time.
 
