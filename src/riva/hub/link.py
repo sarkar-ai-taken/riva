@@ -33,6 +33,10 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from riva.core.usage_stats import ModelStats
 
 logger = logging.getLogger(__name__)
 
@@ -598,7 +602,9 @@ def send_usage_rollups(config: LinkConfig | None = None) -> int:
         if usage is None or not usage.total_tokens:
             continue
         sessions_left = usage.total_sessions
-        model_items = list(usage.model_stats.items()) or [(("unknown"), None)]
+        model_items: list[tuple[str, ModelStats | None]] = list(usage.model_stats.items())
+        if not model_items:
+            model_items = [("unknown", None)]
         for model_id, ms in model_items:
             tokens = ms.usage if ms is not None else None
             rollups.append(
