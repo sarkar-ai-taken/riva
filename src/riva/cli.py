@@ -180,7 +180,10 @@ def ping() -> None:
 
     for p in sent:
         click.echo(f"  ✓ {p['agent']} | {p['city']}, {p['country']} | {p['os']}")
-    click.echo("\nAdded to the Riva community map — sarkar.ai/riva/map/")
+    from riva.hub.config import get_endpoint
+
+    map_url = get_endpoint().replace("/api/v1/ping", "/map")
+    click.echo(f"\nAdded to the Riva community map — {map_url}")
 
 
 @cli.command()
@@ -279,12 +282,17 @@ def stats(as_json: bool, agent_filter: str | None) -> None:
         inst = detector.build_instance()
         usage = detector.parse_usage()
         inst.usage_stats = usage
+        inst.extra["usage_supported"] = bool(detector.supports_usage)
         instances.append(inst)
 
     if as_json:
         output = []
         for inst in instances:
-            entry: dict = {"name": inst.name, "status": inst.status.value}
+            entry: dict = {
+                "name": inst.name,
+                "status": inst.status.value,
+                "usage_supported": inst.extra.get("usage_supported", False),
+            }
             s = inst.usage_stats
             if s:
                 entry["usage"] = {
@@ -2677,6 +2685,264 @@ def disconnect() -> None:
         return
     clear_server_credentials()
     console.print("[green]Disconnected.[/green] Server credentials removed from hub.toml.")
+
+
+# ---------------------------------------------------------------------------
+# Fleet roll-up reporting — push security + usage summaries to a Riva Server
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--server", "server_url", default=None, help="Riva Server base URL (default: from the linked server).")
+@click.option(
+    "--org", "org_name", default=None, help="Organization to report under (default: linked tenant or 'default')."
+)
+@click.option("--lat", type=float, default=None, help="Optional latitude for the fleet map.")
+@click.option("--lon", type=float, default=None, help="Optional longitude for the fleet map.")
+@click.option("--watch", is_flag=True, help="Keep pushing every --interval seconds.")
+@click.option("--interval", default=300.0, type=float, help="Seconds between pushes when --watch (default 300).")
+def fleet(
+    server_url: str | None, org_name: str | None, lat: float | None, lon: float | None, watch: bool, interval: float
+) -> None:
+    """Push rolled-up security findings + usage to a Riva Server.
+
+    Sends metadata and per-day aggregates only — raw transcripts and file
+    contents stay on this machine. Lights up the server dashboard's Security
+    and Usage tabs.
+
+    \b
+        riva fleet --server https://riva.mycompany.com --org acme-ai
+        riva fleet --watch --interval 300
+    """
+    import time as _t
+
+    from riva.hub.fleet_report import FleetReportError, report_once
+
+    console = Console()
+
+    # Resolve the server URL from the linked config if not given explicitly.
+    if not server_url:
+        try:
+            from riva.hub.link import load_config
+
+            cfg = load_config()
+            if cfg and cfg.server_url:
+                server_url = cfg.server_url
+        except Exception:
+            pass
+    if not server_url:
+        console.print("[red]No server URL.[/red] Pass --server or run `riva link start <url>` first.")
+        raise SystemExit(1)
+
+    org_name = org_name or "default"
+
+    def _push() -> None:
+        summary = report_once(server_url, org_name, lat=lat, lon=lon)
+        console.print(
+            f"[green]Pushed[/green] {summary['security_findings']} findings, "
+            f"{summary['usage_rollups']} usage rollups → [cyan]{server_url}[/cyan]"
+        )
+
+    if not watch:
+        try:
+            _push()
+        except FleetReportError as e:
+            console.print(f"[red]Fleet report failed:[/red] {e}")
+            raise SystemExit(1) from e
+        return
+
+    console.print(f"[dim]Reporting every {interval:.0f}s. Ctrl-C to stop.[/dim]")
+    try:
+        while True:
+            try:
+                _push()
+            except FleetReportError as e:
+                console.print(f"[yellow]Report failed (will retry):[/yellow] {e}")
+            _t.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("[dim]Stopped.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Riva Server linking — riva link (pairing-token flow, multi-tenant)
+# ---------------------------------------------------------------------------
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def link(ctx: click.Context) -> None:
+    """Link this machine to a remote Riva Server.
+
+    \b
+        riva link start https://riva.mycompany.com
+        riva link status
+        riva link sync --watch
+        riva link unlink
+
+    Running `riva link` with no subcommand shows the current link status.
+    """
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(link_status)
+
+
+@link.command(name="start")
+@click.argument("server_url")
+@click.option("--no-wait", is_flag=True, help="Don't poll for approval; fail if not auto-approved.")
+@click.option("--timeout", default=120.0, type=float, help="Seconds to wait for approval when polling.")
+def link_start(server_url: str, no_wait: bool, timeout: float) -> None:
+    """Pair with a Riva Server and store its tenant credentials."""
+    from riva.hub.link import LinkError, redeem_link, register_agents, start_link
+
+    console = Console()
+    console.print(f"Requesting a pairing token from [cyan]{server_url}[/cyan]…")
+
+    try:
+        started = start_link(server_url)
+    except LinkError as e:
+        console.print(f"[red]Link failed:[/red] {e}")
+        raise SystemExit(1) from e
+
+    code = started.get("code")
+    approve_url = started.get("approve_url")
+    if code:
+        console.print(f"\n  Approval code: [bold yellow]{code}[/bold yellow]")
+    if approve_url:
+        console.print(f"  Approve at: [cyan]{approve_url}[/cyan]")
+        import webbrowser
+
+        try:
+            if webbrowser.open(approve_url):
+                console.print("  [dim]Opened your browser — sign in and approve the code above.[/dim]")
+        except Exception:
+            pass
+    if started.get("qr"):
+        console.print("  (a QR code was returned — scan it in the server dashboard)")
+    if code or approve_url:
+        console.print("\n[dim]Waiting for approval — linking completes automatically…[/dim]\n")
+
+    token = started["pairing_token"]
+    try:
+        if no_wait:
+            config = redeem_link(server_url, token)
+        else:
+            import time as _t
+
+            deadline = _t.time() + timeout
+            while True:
+                try:
+                    config = redeem_link(server_url, token)
+                    break
+                except LinkError:
+                    if _t.time() >= deadline:
+                        raise
+                    _t.sleep(2.0)
+    except LinkError as e:
+        console.print(f"[red]Link failed:[/red] {e}")
+        raise SystemExit(1) from e
+
+    console.print(f"[bold green]Linked[/bold green] to {config.server_url} (tenant: {config.tenant_id})")
+
+    # Register currently-detected agents with the server.
+    try:
+        count = register_agents(config)
+        console.print(f"  Registered {count} agent(s) with the server.")
+    except LinkError as e:
+        console.print(f"  [yellow]Agent registration skipped:[/yellow] {e}")
+
+    console.print(
+        "\nRun [bold]riva link sync --watch[/bold] to stream status, or start "
+        "[bold]riva web[/bold] which heartbeats automatically."
+    )
+
+
+@link.command(name="status")
+def link_status() -> None:
+    """Show current server-link status."""
+    from riva.hub.link import CONFIG_FILE, load_config
+
+    console = Console()
+    config = load_config()
+    if config is None:
+        console.print("\n[dim]Not linked.[/dim] Run [bold]riva link start <server_url>[/bold] to connect.\n")
+        return
+
+    console.print(f"\n[bold green]Linked[/bold green] to {config.server_url} (tenant: {config.tenant_id})")
+    r = config.redacted()
+    console.print(f"  API key: {r['api_key_masked']}")
+    if config.last_synced:
+        import datetime
+        import time
+
+        ago = max(0, int(time.time() - config.last_synced))
+        when = datetime.datetime.fromtimestamp(config.last_synced).strftime("%Y-%m-%d %H:%M:%S")
+        console.print(f"  Last synced: {when} ([dim]{ago}s ago[/dim])")
+    else:
+        console.print("  Last synced: [dim]never[/dim]")
+    console.print(f"  Config: {CONFIG_FILE}\n")
+
+
+@link.command(name="sync")
+@click.option("--watch", is_flag=True, help="Keep heartbeating every --interval seconds.")
+@click.option("--interval", default=30.0, type=float, help="Seconds between heartbeats when --watch.")
+def link_sync(watch: bool, interval: float) -> None:
+    """Push a full sync (agents, audit log, forensics) to the linked server."""
+    from riva.hub.link import DEFAULT_HEARTBEAT_INTERVAL, LinkError, is_linked, start_heartbeat, sync_once
+
+    console = Console()
+    if not is_linked():
+        console.print("[red]Not linked.[/red] Run `riva link start <server_url>` first.")
+        raise SystemExit(1)
+
+    if not watch:
+        try:
+            result = sync_once()
+        except LinkError as e:
+            console.print(f"[red]Sync failed:[/red] {e}")
+            raise SystemExit(1) from e
+        console.print(
+            f"[green]Synced.[/green] audit entries: {result['audit_ingested']}, "
+            f"forensic sessions: {result['forensic_sessions']}"
+        )
+        return
+
+    import time
+
+    interval = interval or DEFAULT_HEARTBEAT_INTERVAL
+    console.print(f"[dim]Heartbeating every {interval}s. Ctrl-C to stop.[/dim]")
+    stop = start_heartbeat(interval=interval)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        stop.set()
+        console.print("[dim]Stopped.[/dim]")
+
+
+@link.command(name="agents")
+def link_agents() -> None:
+    """Register currently-detected local agents with the linked server."""
+    from riva.hub.link import LinkError, register_agents
+
+    console = Console()
+    try:
+        count = register_agents()
+    except LinkError as e:
+        console.print(f"[red]Registration failed:[/red] {e}")
+        raise SystemExit(1) from e
+    console.print(f"[green]Registered {count} agent(s).[/green]")
+
+
+@link.command(name="unlink")
+def link_unlink() -> None:
+    """Disconnect from the Riva Server: revoke our API key, clear credentials."""
+    from riva.hub.link import is_linked, unlink
+
+    console = Console()
+    if not is_linked():
+        console.print("[dim]Not linked — nothing to do.[/dim]")
+        return
+    unlink(revoke=True)
+    console.print("[green]Unlinked.[/green] Server credentials removed from ~/.riva/server-link.json.")
 
 
 # ---------------------------------------------------------------------------

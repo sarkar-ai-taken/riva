@@ -96,6 +96,7 @@
 
     <div class="sidebar-bottom">
       <div class="sidebar-profile" id="sidebar-profile" title="Settings">
+        <span class="settings-bubble visible" id="settings-link-bubble" title="Connect this machine to a Riva Server">1</span>
         <div class="profile-avatar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -157,6 +158,45 @@
             </svg>
             <span>System</span>
           </button>
+        </div>
+      </div>
+
+      <div class="settings-section" id="server-link-section">
+        <h4>Riva Server</h4>
+        <p class="settings-hint">Link this machine to a remote Riva Server to stream agent status to a central dashboard.</p>
+
+        <!-- Not linked: enter URL + link -->
+        <div id="link-unlinked">
+          <div class="form-group">
+            <label>Server URL</label>
+            <input type="text" id="link-server-url" class="form-input" placeholder="https://riva.mycompany.com">
+          </div>
+          <button class="btn btn-primary" id="link-start-btn" style="width:100%">Link to Server</button>
+          <div id="link-pairing" style="display:none;margin-top:12px">
+            <p class="settings-hint">Approve this device on the server:</p>
+            <div class="link-code" id="link-code"></div>
+            <a id="link-approve-url" href="#" target="_blank" rel="noopener" style="display:none">Open approval page ↗</a>
+            <p class="settings-hint" id="link-pairing-status" style="margin-top:8px">Waiting for approval…</p>
+          </div>
+          <div id="link-error" class="link-error" style="display:none"></div>
+        </div>
+
+        <!-- Linked: status + unlink -->
+        <div id="link-linked" style="display:none">
+          <div class="link-status-card">
+            <div class="link-status-row">
+              <span class="status-dot live" id="link-sync-dot"></span>
+              <span id="link-status-text">Linked</span>
+            </div>
+            <div class="link-detail"><span>Server</span><code id="link-detail-url"></code></div>
+            <div class="link-detail"><span>Tenant</span><code id="link-detail-tenant"></code></div>
+            <div class="link-detail"><span>API key</span><code id="link-detail-key"></code></div>
+            <div class="link-detail"><span>Sync</span><span id="link-detail-synced">—</span></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn" id="link-sync-btn" style="flex:1">Sync now</button>
+            <button class="btn btn-danger" id="link-unlink-btn" style="flex:1">Unlink</button>
+          </div>
         </div>
       </div>
     </div>

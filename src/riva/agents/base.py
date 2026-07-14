@@ -104,6 +104,15 @@ class AgentDetector(ABC):
         """Parse usage statistics. Returns ``None`` by default."""
         return None
 
+    @property
+    def supports_usage(self) -> bool:
+        """True if this detector implements local usage parsing.
+
+        False means the client does not persist usage data locally (or no
+        parser exists for it yet), so ``parse_usage()`` always returns None.
+        """
+        return type(self).parse_usage is not AgentDetector.parse_usage
+
     def parse_skills(self) -> list[Skill]:
         """Parse skills/commands defined for this agent. Returns ``[]`` by default."""
         return []

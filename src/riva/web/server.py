@@ -234,6 +234,8 @@ def create_app(auth_token: str | None = None) -> Flask:
                 entry: dict = {
                     "name": det.agent_name,
                     "status": inst.status.value,
+                    # False = this client keeps usage server-side; no local data to parse.
+                    "usage_supported": bool(getattr(det, "supports_usage", False)),
                     "total_tokens": 0,
                     "total_tokens_formatted": "0",
                     "total_sessions": 0,
@@ -569,6 +571,82 @@ def create_app(auth_token: str | None = None) -> Flask:
             return configs
 
         return jsonify({"configs": _cached("config", _fetch)})
+
+    # ---- Server link endpoints -------------------------------------------
+
+    @app.route("/api/link/status")
+    def api_link_status():
+        from riva.hub.link import load_config
+
+        config = load_config()
+        if config is None:
+            return jsonify({"linked": False})
+        return jsonify({"linked": True, **config.redacted()})
+
+    @app.route("/api/link/start", methods=["POST"])
+    def api_link_start():
+        from riva.hub.link import LinkError, start_link
+
+        data = request.get_json(silent=True) or {}
+        server_url = (data.get("server_url") or "").strip()
+        if not server_url:
+            return jsonify({"error": "server_url is required"}), 400
+        try:
+            result = start_link(server_url)
+        except LinkError as e:
+            return jsonify({"error": str(e)}), 502
+        # Echo back only what the UI needs to guide approval + redeem.
+        return jsonify(
+            {
+                "pairing_token": result.get("pairing_token"),
+                "code": result.get("code"),
+                "qr": result.get("qr"),
+                "approve_url": result.get("approve_url"),
+            }
+        )
+
+    @app.route("/api/link/redeem", methods=["POST"])
+    def api_link_redeem():
+        from riva.hub.link import LinkError, redeem_link, register_agents
+
+        data = request.get_json(silent=True) or {}
+        server_url = (data.get("server_url") or "").strip()
+        pairing_token = (data.get("pairing_token") or "").strip()
+        if not server_url or not pairing_token:
+            return jsonify({"error": "server_url and pairing_token are required"}), 400
+        try:
+            config = redeem_link(server_url, pairing_token)
+        except LinkError as e:
+            return jsonify({"error": str(e)}), 502
+        registered = 0
+        try:
+            registered = register_agents(config)
+        except LinkError:
+            pass
+        return jsonify({"linked": True, "registered_agents": registered, **config.redacted()})
+
+    @app.route("/api/link/sync", methods=["POST"])
+    def api_link_sync():
+        from riva.hub.link import LinkError, sync_once
+
+        try:
+            result = sync_once()
+        except LinkError as e:
+            return jsonify({"error": str(e)}), 502
+        return jsonify(
+            {
+                "ok": True,
+                "audit_ingested": result["audit_ingested"],
+                "forensic_sessions": result["forensic_sessions"],
+            }
+        )
+
+    @app.route("/api/link/unlink", methods=["POST"])
+    def api_link_unlink():
+        from riva.hub.link import unlink as _unlink
+
+        _unlink(revoke=True)
+        return jsonify({"linked": False})
 
     @app.route("/api/open-file", methods=["POST"])
     def api_open_file():
@@ -1083,10 +1161,22 @@ def run_server(host: str = "127.0.0.1", port: int = 8585, auth_token: str | None
 
     monitor = _get_monitor()
     monitor.start()
+
+    # Heartbeat to a linked Riva Server (no-op-safe if not linked).
+    heartbeat_stop = None
+    try:
+        from riva.hub.link import start_heartbeat
+
+        heartbeat_stop = start_heartbeat()
+    except Exception:
+        pass
+
     try:
         app = create_app(auth_token=auth_token)
         app.run(host=host, port=port)
     finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
         monitor.stop()
 
 

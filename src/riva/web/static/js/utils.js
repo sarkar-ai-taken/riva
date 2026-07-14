@@ -82,8 +82,12 @@ function makeSortable(table) {
       headers.forEach(function(h) { if (h !== th) delete h.dataset.sortDir; });
 
       rows.sort(function(a, b) {
-        var aVal = a.cells[colIdx] ? a.cells[colIdx].textContent.trim() : '';
-        var bVal = b.cells[colIdx] ? b.cells[colIdx].textContent.trim() : '';
+        // Prefer an explicit data-sort value (raw number behind formatted
+        // text like "738.8M"); fall back to the visible cell text.
+        var aCell = a.cells[colIdx];
+        var bCell = b.cells[colIdx];
+        var aVal = aCell ? (aCell.dataset.sort !== undefined ? aCell.dataset.sort : aCell.textContent.trim()) : '';
+        var bVal = bCell ? (bCell.dataset.sort !== undefined ? bCell.dataset.sort : bCell.textContent.trim()) : '';
         var aNum = parseFloat(aVal);
         var bNum = parseFloat(bVal);
         if (!isNaN(aNum) && !isNaN(bNum)) {

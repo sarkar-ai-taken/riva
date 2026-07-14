@@ -219,6 +219,10 @@ def build_usage_table(instances: list[AgentInstance]) -> Table:
             messages_str = format_number(stats.total_messages)
             tools_str = format_number(stats.total_tool_calls)
             last_activity = stats.time_range_end or "-"
+        elif inst.extra.get("usage_supported") is False:
+            # Client does not persist usage data locally
+            tokens_str = sessions_str = messages_str = tools_str = "[dim]n/a[/dim]"
+            last_activity = "[dim]n/a[/dim]"
         else:
             tokens_str = "-"
             sessions_str = "-"
@@ -240,6 +244,10 @@ def build_usage_table(instances: list[AgentInstance]) -> Table:
         table.add_row("[dim]No agents detected[/dim]", "", "", "", "", "", "")
     elif not has_stats:
         table.add_row("[dim]No usage data available[/dim]", "", "", "", "", "", "")
+
+    if any(inst.extra.get("usage_supported") is False for inst in instances):
+        table.caption = "n/a = client does not store usage data locally"
+        table.caption_style = "dim"
 
     return table
 

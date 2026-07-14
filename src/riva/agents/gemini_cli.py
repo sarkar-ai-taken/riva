@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import json
+from collections import defaultdict
 from pathlib import Path
 
 from riva.agents.base import AgentDetector
+from riva.core.usage_stats import (
+    DailyStats,
+    ModelStats,
+    TokenUsage,
+    ToolCallStats,
+    UsageStats,
+)
+from riva.utils.jsonl import find_recent_sessions
 
 
 class GeminiCLIDetector(AgentDetector):
@@ -35,6 +45,165 @@ class GeminiCLIDetector(AgentDetector):
             if "gemini-cli" in cmdline_str or "@google/gemini" in cmdline_str:
                 return True
         return False
+
+    # ------------------------------------------------------------------
+    # Usage statistics
+    # ------------------------------------------------------------------
+
+    def parse_usage(self) -> UsageStats | None:
+        """Parse usage stats from Gemini CLI session data.
+
+        Scans ``~/.gemini/tmp/<project_hash>/``:
+        - ``logs.json`` — array of user message log entries (sessions, messages)
+        - ``chats/*.json`` — saved sessions with per-message token counts,
+          model ids, and tool calls (format varies across CLI versions)
+        """
+        try:
+            return self._parse_usage_inner()
+        except Exception:
+            return None
+
+    def _parse_usage_inner(self) -> UsageStats | None:
+        tmp_dir = self.config_dir / "tmp"
+        if not tmp_dir.is_dir():
+            return None
+
+        model_tokens: dict[str, TokenUsage] = defaultdict(TokenUsage)
+        tool_counts: dict[str, int] = defaultdict(int)
+        tool_last_used: dict[str, str] = {}
+        daily_counts: dict[str, dict] = defaultdict(lambda: {"messages": 0, "sessions": 0, "tokens": 0, "tools": 0})
+        session_ids: set[str] = set()
+        total_messages = 0
+        total_tool_calls = 0
+        found_data = False
+
+        for project_dir in tmp_dir.iterdir():
+            if not project_dir.is_dir():
+                continue
+
+            # --- logs.json: user message log ---------------------------------
+            logs_file = project_dir / "logs.json"
+            if logs_file.is_file():
+                try:
+                    entries = json.loads(logs_file.read_text(errors="replace"))
+                except (json.JSONDecodeError, OSError):
+                    entries = []
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        found_data = True
+                        total_messages += 1
+                        sid = entry.get("sessionId", "")
+                        ts = str(entry.get("timestamp", ""))
+                        date_key = ts[:10] if len(ts) >= 10 else ""
+                        if date_key:
+                            daily_counts[date_key]["messages"] += 1
+                        if sid and sid not in session_ids:
+                            session_ids.add(sid)
+                            if date_key:
+                                daily_counts[date_key]["sessions"] += 1
+
+            # --- chats/*.json: saved sessions with token counts --------------
+            chats_dir = project_dir / "chats"
+            if not chats_dir.is_dir():
+                continue
+            for chat_file in find_recent_sessions(chats_dir, "*.json", limit=20):
+                try:
+                    data = json.loads(chat_file.read_text(errors="replace"))
+                except (json.JSONDecodeError, OSError):
+                    continue
+
+                # Session format: {"sessionId": ..., "messages": [...]}
+                # Checkpoint format: bare list of Content objects
+                if isinstance(data, dict):
+                    messages = data.get("messages", data.get("history", []))
+                    sid = data.get("sessionId", "")
+                    if sid:
+                        session_ids.add(sid)
+                else:
+                    messages = data
+                if not isinstance(messages, list):
+                    continue
+
+                for msg in messages:
+                    if not isinstance(msg, dict):
+                        continue
+                    found_data = True
+                    ts = str(msg.get("timestamp", ""))
+                    date_key = ts[:10] if len(ts) >= 10 else ""
+
+                    # Token counts: {"tokens": {"input": .., "output": .., "cached": ..}}
+                    # or Gemini API usageMetadata {"promptTokenCount": .., ...}
+                    model = msg.get("model", "unknown")
+                    tokens = msg.get("tokens")
+                    meta = msg.get("usageMetadata")
+                    turn_tokens = 0
+                    if isinstance(tokens, dict):
+                        usage = model_tokens[model]
+                        usage.input_tokens += tokens.get("input", 0)
+                        usage.output_tokens += tokens.get("output", 0) + tokens.get("thoughts", 0)
+                        usage.cache_read_input_tokens += tokens.get("cached", 0)
+                        turn_tokens = tokens.get("input", 0) + tokens.get("output", 0)
+                    elif isinstance(meta, dict):
+                        usage = model_tokens[model]
+                        usage.input_tokens += meta.get("promptTokenCount", 0)
+                        usage.output_tokens += meta.get("candidatesTokenCount", 0)
+                        usage.cache_read_input_tokens += meta.get("cachedContentTokenCount", 0)
+                        turn_tokens = meta.get("promptTokenCount", 0) + meta.get("candidatesTokenCount", 0)
+                    if turn_tokens and date_key:
+                        daily_counts[date_key]["tokens"] += turn_tokens
+
+                    # Tool calls: functionCall parts (checkpoint/session formats)
+                    for part in msg.get("parts", []) or []:
+                        if not isinstance(part, dict):
+                            continue
+                        fc = part.get("functionCall")
+                        if isinstance(fc, dict):
+                            name = fc.get("name", "unknown")
+                            tool_counts[name] += 1
+                            total_tool_calls += 1
+                            if ts:
+                                tool_last_used[name] = ts
+                            if date_key:
+                                daily_counts[date_key]["tools"] += 1
+
+        if not found_data:
+            return None
+
+        model_stats: dict[str, ModelStats] = {}
+        total_tokens = 0
+        for model_id, usage in model_tokens.items():
+            model_stats[model_id] = ModelStats(model_id=model_id, usage=usage)
+            total_tokens += usage.total_tokens
+
+        tool_stats = [
+            ToolCallStats(tool_name=name, call_count=count, last_used=tool_last_used.get(name))
+            for name, count in tool_counts.items()
+        ]
+
+        daily_activity = [
+            DailyStats(
+                date=date_str,
+                message_count=dc["messages"],
+                session_count=dc["sessions"],
+                tool_call_count=dc["tools"],
+                total_tokens=dc["tokens"],
+            )
+            for date_str, dc in sorted(daily_counts.items())
+        ]
+
+        return UsageStats(
+            model_stats=model_stats,
+            tool_stats=tool_stats,
+            daily_activity=daily_activity,
+            total_tokens=total_tokens,
+            total_messages=total_messages,
+            total_sessions=len(session_ids),
+            total_tool_calls=total_tool_calls,
+            time_range_start=daily_activity[0].date if daily_activity else None,
+            time_range_end=daily_activity[-1].date if daily_activity else None,
+        )
 
     def parse_config(self) -> dict:
         config: dict = {}

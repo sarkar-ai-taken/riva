@@ -88,8 +88,11 @@ def _do_ping(endpoint: str, agent_slugs: list[str]) -> None:
         geo = _get_geo()
         os_str = _os_string()
 
+        from riva.hub.config import get_client_id
+
         for slug in agent_slugs:
             payload = {
+                "client_id": get_client_id(),
                 "os": os_str,
                 "city": geo.get("city", ""),
                 "country": geo.get("country", ""),
@@ -130,7 +133,7 @@ def ping_hub_manual(agents: list[str] | None = None) -> list[dict]:
     from riva import __version__
     from riva.agents.registry import get_default_registry
     from riva.core.monitor import ResourceMonitor
-    from riva.hub.config import get_endpoint
+    from riva.hub.config import get_client_id, get_endpoint
 
     endpoint = get_endpoint()
     geo = _get_geo()
@@ -145,6 +148,7 @@ def ping_hub_manual(agents: list[str] | None = None) -> list[dict]:
     sent = []
     for slug in agents:
         payload = {
+            "client_id": get_client_id(),
             "os": os_str,
             "city": geo.get("city", ""),
             "country": geo.get("country", ""),

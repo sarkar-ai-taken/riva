@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "riva-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "PYTHONPATH=src .venv/bin/python -m riva web --port 8600 start --foreground"],
+      "port": 8600
+    }
+  ]
+}
