@@ -480,3 +480,12 @@ class TestMultiServerWeb:
             assert data["audit_ingested"] == 2
         resp = client.post("/api/link/sync", json={"server_url": "https://nope.co"})
         assert resp.status_code == 404
+
+
+def test_hosted_defaults_agree():
+    """The CLI/web default server and the community-ping default must be the
+    same host — both are baked into the released client."""
+    from riva.hub.config import HUB_ENDPOINT
+
+    assert HUB_ENDPOINT == f"{link.DEFAULT_SERVER_URL}/api/v1/ping"
+    assert link.DEFAULT_SERVER_URL == "https://rivalabs.ai"
