@@ -256,3 +256,227 @@ class TestLinkWebAPI:
         resp = client.post("/api/link/unlink")
         assert resp.get_json()["linked"] is False
         assert not link.is_linked()
+
+
+# ---------------------------------------------------------------------------
+# Multiple servers + defaults (0.3.20)
+# ---------------------------------------------------------------------------
+
+
+def _cfg(url, tenant="t", key="k1234567890"):
+    return link.LinkConfig(server_url=url, tenant_id=tenant, api_key=key)
+
+
+class TestMultiServerStore:
+    def test_legacy_single_object_file_is_read_as_one_link(self, tmp_config):
+        tmp_config.parent.mkdir(parents=True)
+        tmp_config.write_text(
+            json.dumps({"server_url": "https://old.co/", "tenant_id": "t0", "api_key": "k0", "audit_cursor": 7})
+        )
+        links = link.load_links()
+        assert [c.server_url for c in links] == ["https://old.co"]
+        assert links[0].audit_cursor == 7
+        assert link.load_config().server_url == "https://old.co"
+
+    def test_legacy_file_upgrades_to_v2_on_save(self, tmp_config):
+        tmp_config.parent.mkdir(parents=True)
+        tmp_config.write_text(json.dumps({"server_url": "https://old.co", "tenant_id": "t0", "api_key": "k0"}))
+        link.save_config(_cfg("https://rivalabs.ai", "t1"))
+        raw = json.loads(tmp_config.read_text())
+        assert raw["version"] == 2
+        assert [e["server_url"] for e in raw["links"]] == ["https://old.co", "https://rivalabs.ai"]
+
+    def test_save_config_replaces_same_server_keeps_order(self, tmp_config):
+        link.save_config(_cfg("https://a.co", "ta"))
+        link.save_config(_cfg("https://b.co", "tb"))
+        link.save_config(_cfg("https://A.co/", "ta2", "newkey12345"))  # same server, new creds
+        links = link.load_links()
+        assert [(c.server_url, c.tenant_id) for c in links] == [("https://A.co", "ta2"), ("https://b.co", "tb")]
+
+    def test_load_config_by_url_and_primary(self, tmp_config):
+        link.save_config(_cfg("https://a.co", "ta"))
+        link.save_config(_cfg("https://b.co", "tb"))
+        assert link.load_config().tenant_id == "ta"
+        assert link.load_config("https://b.co/").tenant_id == "tb"
+        assert link.load_config("https://nope.co") is None
+        assert link.is_linked("https://b.co") and not link.is_linked("https://nope.co")
+
+    def test_cursor_save_on_one_link_does_not_touch_the_other(self, tmp_config):
+        link.save_config(_cfg("https://a.co", "ta"))
+        link.save_config(_cfg("https://b.co", "tb"))
+        b = link.load_config("https://b.co")
+        b.audit_cursor = 42
+        link.save_config(b)
+        assert link.load_config("https://a.co").audit_cursor == 0
+        assert link.load_config("https://b.co").audit_cursor == 42
+
+    def test_clear_one_leaves_the_rest(self, tmp_config):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        assert link.clear_config("https://a.co") is True
+        assert [c.server_url for c in link.load_links()] == ["https://b.co"]
+        assert link.clear_config("https://a.co") is False
+        assert link.clear_config("https://b.co") is True
+        assert not tmp_config.exists()
+
+    def test_unlink_one_revokes_only_that_key(self, tmp_config):
+        link.save_config(_cfg("https://a.co", key="ka1234567890"))
+        link.save_config(_cfg("https://b.co", key="kb1234567890"))
+        with patch.object(link, "_request", return_value={}) as m:
+            assert link.unlink(revoke=True, server_url="https://a.co") == 1
+        assert m.call_count == 1
+        assert m.call_args.args[1].startswith("https://a.co/")
+        assert m.call_args.kwargs["api_key"] == "ka1234567890"
+        assert [c.server_url for c in link.load_links()] == ["https://b.co"]
+
+    def test_unlink_all(self, tmp_config):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        with patch.object(link, "_request", return_value={}) as m:
+            assert link.unlink(revoke=True) == 2
+        assert m.call_count == 2
+        assert link.load_links() == []
+
+    def test_sync_all_isolates_failures(self, tmp_config):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+
+        def _sync(cfg):
+            if cfg.server_url == "https://a.co":
+                raise link.LinkError("down")
+            return {"audit_ingested": 1, "forensic_sessions": 0}
+
+        with patch.object(link, "sync_once", side_effect=_sync):
+            out = link.sync_all()
+        assert isinstance(out["https://a.co"], link.LinkError)
+        assert out["https://b.co"]["audit_ingested"] == 1
+
+
+class TestDefaultServer:
+    def test_hosted_default(self, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.delenv("RIVA_DEV", raising=False)
+        assert link.default_server_url() == "https://rivalabs.ai"
+        assert link.is_dev_mode() is False
+
+    def test_dev_mode_points_at_localhost(self, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.setenv("RIVA_DEV", "1")
+        assert link.default_server_url() == "http://localhost:8600"
+        assert link.is_dev_mode() is True
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("RIVA_DEV", "1")
+        monkeypatch.setenv("RIVA_SERVER_URL", "https://riva.corp.example/")
+        assert link.default_server_url() == "https://riva.corp.example"
+
+
+class TestMultiServerCLI:
+    def test_start_without_url_uses_default(self, tmp_config, runner, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.delenv("RIVA_DEV", raising=False)
+        with (
+            patch.object(link, "start_link", return_value={"pairing_token": "pt"}) as m_start,
+            patch.object(link, "redeem_link", return_value=_cfg("https://rivalabs.ai", "t1")),
+            patch.object(link, "register_agents", return_value=0),
+        ):
+            result = runner.invoke(cli, ["link", "start", "--no-wait"])
+        assert result.exit_code == 0, result.output
+        assert "using https://rivalabs.ai" in result.output
+        m_start.assert_called_once_with("https://rivalabs.ai")
+
+    def test_start_without_url_in_dev_mode(self, tmp_config, runner, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.setenv("RIVA_DEV", "1")
+        with (
+            patch.object(link, "start_link", return_value={"pairing_token": "pt"}) as m_start,
+            patch.object(link, "redeem_link", return_value=_cfg("http://localhost:8600", "t1")),
+            patch.object(link, "register_agents", return_value=0),
+        ):
+            result = runner.invoke(cli, ["link", "start", "--no-wait"])
+        assert result.exit_code == 0, result.output
+        m_start.assert_called_once_with("http://localhost:8600")
+        assert "RIVA_DEV" in result.output
+
+    def test_status_lists_every_server(self, tmp_config, runner):
+        link.save_config(_cfg("https://a.co", "ta"))
+        link.save_config(_cfg("https://b.co", "tb"))
+        result = runner.invoke(cli, ["link", "status"])
+        assert result.exit_code == 0
+        assert "2 server(s)" in result.output
+        assert "https://a.co" in result.output and "(primary)" in result.output
+        assert "https://b.co" in result.output
+
+    def test_sync_reports_per_server(self, tmp_config, runner):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        with patch.object(link, "sync_once", return_value={"audit_ingested": 3, "forensic_sessions": 1}) as m:
+            result = runner.invoke(cli, ["link", "sync"])
+        assert result.exit_code == 0, result.output
+        assert result.output.count("Synced") == 2
+        assert m.call_count == 2
+
+    def test_unlink_needs_url_when_several(self, tmp_config, runner):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        result = runner.invoke(cli, ["link", "unlink"])
+        assert result.exit_code == 1
+        assert "riva link unlink https://a.co" in result.output
+        with patch.object(link, "_request", return_value={}):
+            result = runner.invoke(cli, ["link", "unlink", "https://a.co"])
+        assert result.exit_code == 0, result.output
+        assert "1 link(s) remain" in result.output
+        assert [c.server_url for c in link.load_links()] == ["https://b.co"]
+
+    def test_unlink_all_flag(self, tmp_config, runner):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        with patch.object(link, "_request", return_value={}):
+            result = runner.invoke(cli, ["link", "unlink", "--all"])
+        assert result.exit_code == 0, result.output
+        assert "from 2 server(s)" in result.output
+        assert not link.is_linked()
+
+
+class TestMultiServerWeb:
+    @pytest.fixture
+    def client(self):
+        from riva.web.server import create_app
+
+        app = create_app()
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    def test_status_lists_links_and_default(self, tmp_config, client, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.delenv("RIVA_DEV", raising=False)
+        link.save_config(_cfg("https://a.co", "ta"))
+        link.save_config(_cfg("https://b.co", "tb"))
+        data = client.get("/api/link/status").get_json()
+        assert data["linked"] is True
+        assert [entry["server_url"] for entry in data["links"]] == ["https://a.co", "https://b.co"]
+        assert data["tenant_id"] == "ta"  # primary mirrored at top level
+        assert data["default_server_url"] == "https://rivalabs.ai"
+        assert data["dev_mode"] is False
+        assert all("api_key" not in entry for entry in data["links"])
+
+    def test_unlink_one_via_web(self, tmp_config, client):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        with patch.object(link, "_request", return_value={}):
+            data = client.post("/api/link/unlink", json={"server_url": "https://a.co"}).get_json()
+        assert data["linked"] is True and data["removed"] == 1
+        assert [entry["server_url"] for entry in data["links"]] == ["https://b.co"]
+
+    def test_sync_one_vs_all(self, tmp_config, client):
+        link.save_config(_cfg("https://a.co"))
+        link.save_config(_cfg("https://b.co"))
+        with patch.object(link, "sync_once", return_value={"audit_ingested": 1, "forensic_sessions": 0}) as m:
+            data = client.post("/api/link/sync", json={"server_url": "https://b.co"}).get_json()
+            assert data["ok"] and list(data["servers"]) == ["https://b.co"]
+            assert m.call_count == 1
+            data = client.post("/api/link/sync").get_json()
+            assert data["ok"] and sorted(data["servers"]) == ["https://a.co", "https://b.co"]
+            assert data["audit_ingested"] == 2
+        resp = client.post("/api/link/sync", json={"server_url": "https://nope.co"})
+        assert resp.status_code == 404

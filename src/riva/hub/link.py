@@ -11,8 +11,10 @@ The pairing handshake:
 2. user approves on the server (or the server auto-approves)
 3. ``POST {server_url}/link/redeem``   → ``{tenant_id, api_key, server_url}``
 
-Once linked we persist ``{server_url, tenant_id, api_key}`` to
-``~/.riva/server-link.json`` and can:
+Once linked we persist ``{server_url, tenant_id, api_key}`` per server to
+``~/.riva/server-link.json`` (a machine can be linked to several servers at
+once — e.g. rivalabs.ai plus a company-hosted one; each link has its own key
+and sync cursors) and can:
 
 * register agents:  ``POST {server_url}/tenants/{tenant_id}/agents``
 * heartbeat status: ``POST {server_url}/tenants/{tenant_id}/status`` (every 30s)
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import socket
 import threading
@@ -49,6 +52,35 @@ CONFIG_FILE = CONFIG_DIR / "server-link.json"
 
 _TIMEOUT = 10  # seconds for one-shot API calls
 DEFAULT_HEARTBEAT_INTERVAL = 30.0  # seconds
+
+# Where `riva link start` (and the web Settings panel) point when no URL is
+# given: the hosted Riva Server, or a local one in dev mode.
+DEFAULT_SERVER_URL = "https://rivalabs.ai"
+DEV_SERVER_URL = "http://localhost:8600"
+_CONFIG_VERSION = 2
+
+
+def is_dev_mode() -> bool:
+    """True when ``RIVA_DEV`` is set (1/true/yes) — local server defaults."""
+    return os.environ.get("RIVA_DEV", "").strip().lower() in ("1", "true", "yes")
+
+
+def default_server_url() -> str:
+    """Server to link to when none is given.
+
+    Priority: ``RIVA_SERVER_URL`` env override → ``DEV_SERVER_URL`` when
+    ``RIVA_DEV`` is set → ``DEFAULT_SERVER_URL`` (the hosted service).
+    """
+    override = os.environ.get("RIVA_SERVER_URL", "").strip()
+    if override:
+        return override.rstrip("/")
+    if is_dev_mode():
+        return DEV_SERVER_URL
+    return DEFAULT_SERVER_URL
+
+
+def _norm_url(url: str) -> str:
+    return (url or "").strip().rstrip("/").lower()
 
 
 class LinkError(RuntimeError):
@@ -87,78 +119,156 @@ class LinkConfig:
         }
 
 
-def load_config() -> LinkConfig | None:
-    """Return the stored link config, or None if not linked / unreadable."""
-    if not CONFIG_FILE.is_file():
+def _parse_link(raw: dict) -> LinkConfig | None:
+    """Build a LinkConfig from one stored entry; None if it is incomplete."""
+    server_url = raw.get("server_url")
+    tenant_id = raw.get("tenant_id")
+    api_key = raw.get("api_key")
+    if not (server_url and tenant_id and api_key):
         return None
-    # A corrupt file (bad JSON, wrong-typed values, bad encoding) counts as
-    # unlinked rather than raising into every caller.
+    return LinkConfig(
+        server_url=server_url.rstrip("/"),
+        tenant_id=tenant_id,
+        api_key=api_key,
+        linked_at=float(raw.get("linked_at", 0.0) or 0.0),
+        last_synced=float(raw.get("last_synced", 0.0) or 0.0),
+        audit_cursor=int(raw.get("audit_cursor", 0) or 0),
+        forensics_synced_at=float(raw.get("forensics_synced_at", 0.0) or 0.0),
+        usage_synced_at=float(raw.get("usage_synced_at", 0.0) or 0.0),
+        security_synced_at=float(raw.get("security_synced_at", 0.0) or 0.0),
+        geo_lat=raw.get("geo_lat"),
+        geo_lon=raw.get("geo_lon"),
+        geo_at=float(raw.get("geo_at", 0.0) or 0.0),
+    )
+
+
+def load_links() -> list[LinkConfig]:
+    """All stored links, primary first. Empty when not linked / unreadable.
+
+    Reads both the current ``{"version": 2, "links": [...]}`` layout and the
+    pre-0.3.20 single-object layout (one link at the top level). A corrupt
+    file (bad JSON, wrong-typed values, bad encoding) counts as unlinked
+    rather than raising into every caller.
+    """
+    if not CONFIG_FILE.is_file():
+        return []
     try:
         raw = json.loads(CONFIG_FILE.read_text())
-        server_url = raw.get("server_url")
-        tenant_id = raw.get("tenant_id")
-        api_key = raw.get("api_key")
-        if not (server_url and tenant_id and api_key):
-            return None
-        return LinkConfig(
-            server_url=server_url.rstrip("/"),
-            tenant_id=tenant_id,
-            api_key=api_key,
-            linked_at=float(raw.get("linked_at", 0.0) or 0.0),
-            last_synced=float(raw.get("last_synced", 0.0) or 0.0),
-            audit_cursor=int(raw.get("audit_cursor", 0) or 0),
-            forensics_synced_at=float(raw.get("forensics_synced_at", 0.0) or 0.0),
-            usage_synced_at=float(raw.get("usage_synced_at", 0.0) or 0.0),
-            security_synced_at=float(raw.get("security_synced_at", 0.0) or 0.0),
-            geo_lat=raw.get("geo_lat"),
-            geo_lon=raw.get("geo_lon"),
-            geo_at=float(raw.get("geo_at", 0.0) or 0.0),
-        )
+        if isinstance(raw, dict) and isinstance(raw.get("links"), list):
+            entries = raw["links"]
+        elif isinstance(raw, dict):
+            entries = [raw]  # legacy single-link file
+        else:
+            return []
+        links: list[LinkConfig] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            cfg = _parse_link(entry)
+            if cfg is None or _norm_url(cfg.server_url) in seen:
+                continue
+            seen.add(_norm_url(cfg.server_url))
+            links.append(cfg)
+        return links
     except (OSError, TypeError, ValueError, AttributeError):
         # ValueError covers json.JSONDecodeError and UnicodeDecodeError.
-        return None
+        return []
 
 
-def save_config(config: LinkConfig) -> None:
-    """Persist link config to ~/.riva/server-link.json (0600 perms)."""
+def save_links(links: list[LinkConfig]) -> None:
+    """Persist the full link list to ~/.riva/server-link.json (0600 perms)."""
+    if not links:
+        clear_config()
+        return
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(asdict(config), indent=2) + "\n")
+    payload = {"version": _CONFIG_VERSION, "links": [asdict(c) for c in links]}
+    CONFIG_FILE.write_text(json.dumps(payload, indent=2) + "\n")
     try:
-        CONFIG_FILE.chmod(0o600)  # contains an API key
+        CONFIG_FILE.chmod(0o600)  # contains API keys
     except OSError:
         pass
 
 
-def clear_config() -> bool:
-    """Delete the stored link config. Returns True if a file was removed."""
-    if CONFIG_FILE.exists():
-        CONFIG_FILE.unlink()
-        return True
-    return False
+def load_config(server_url: str | None = None) -> LinkConfig | None:
+    """The link for *server_url*, or the primary (first) link when None.
 
-
-def unlink(revoke: bool = True) -> bool:
-    """Unlink from the server: revoke our API key (best-effort), drop credentials.
-
-    Revocation invalidates the key server-side so a leaked copy of the old
-    credentials can't keep pushing data. Server-side data is retained.
+    Returns None if not linked to that server / not linked at all.
     """
-    config = load_config()
-    if revoke and config is not None:
-        try:
-            _request(
-                "POST",
-                f"{_api_base(config.server_url)}/link/revoke",
-                {},
-                api_key=config.api_key,
-            )
-        except LinkError as e:
-            logger.debug("key revocation failed (clearing local credentials anyway): %s", e)
-    return clear_config()
+    links = load_links()
+    if not links:
+        return None
+    if server_url is None:
+        return links[0]
+    want = _norm_url(server_url)
+    for cfg in links:
+        if _norm_url(cfg.server_url) == want:
+            return cfg
+    return None
 
 
-def is_linked() -> bool:
-    return load_config() is not None
+def save_config(config: LinkConfig) -> None:
+    """Persist one link: replaces the entry for its server_url, else appends."""
+    links = load_links()
+    want = _norm_url(config.server_url)
+    for i, existing in enumerate(links):
+        if _norm_url(existing.server_url) == want:
+            links[i] = config
+            break
+    else:
+        links.append(config)
+    save_links(links)
+
+
+def clear_config(server_url: str | None = None) -> bool:
+    """Drop stored links — one server, or every link when *server_url* is None.
+
+    Returns True if anything was removed.
+    """
+    if server_url is None:
+        if CONFIG_FILE.exists():
+            CONFIG_FILE.unlink()
+            return True
+        return False
+    links = load_links()
+    want = _norm_url(server_url)
+    kept = [c for c in links if _norm_url(c.server_url) != want]
+    if len(kept) == len(links):
+        return False
+    save_links(kept)
+    return True
+
+
+def unlink(revoke: bool = True, server_url: str | None = None) -> int:
+    """Unlink from one server (or all when *server_url* is None).
+
+    Revokes our API key server-side (best-effort) so a leaked copy of the old
+    credentials can't keep pushing data, then drops the local credentials.
+    Server-side data is retained. Returns the number of links removed.
+    """
+    links = load_links()
+    if server_url is not None:
+        want = _norm_url(server_url)
+        links = [c for c in links if _norm_url(c.server_url) == want]
+    removed = 0
+    for config in links:
+        if revoke:
+            try:
+                _request(
+                    "POST",
+                    f"{_api_base(config.server_url)}/link/revoke",
+                    {},
+                    api_key=config.api_key,
+                )
+            except LinkError as e:
+                logger.debug("key revocation failed (clearing local credentials anyway): %s", e)
+        if clear_config(config.server_url):
+            removed += 1
+    return removed
+
+
+def is_linked(server_url: str | None = None) -> bool:
+    return load_config(server_url) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +481,7 @@ def register_agent(agent: dict, config: LinkConfig | None = None) -> dict:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
     url = f"{_api_base(config.server_url)}/tenants/{config.tenant_id}/agents"
     # Machine identity keeps registration on the same device row the heartbeat
     # writes to — without it the server would file the agent under no device.
@@ -387,7 +497,7 @@ def register_agents(config: LinkConfig | None = None) -> int:
     """Register every currently-detected local agent. Returns count registered."""
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
     agents = _collect_agents()
     count = 0
     for agent in agents:
@@ -442,7 +552,7 @@ def send_heartbeat(config: LinkConfig | None = None) -> dict:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
     url = f"{_api_base(config.server_url)}/tenants/{config.tenant_id}/status"
     payload = build_status_payload()
     location = _geo_location(config)
@@ -472,7 +582,7 @@ def send_audit(config: LinkConfig | None = None) -> int:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
 
     from riva.core.audit_log import AuditLog
 
@@ -519,7 +629,7 @@ def send_forensics(config: LinkConfig | None = None) -> int:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
 
     try:
         from riva.core.forensic import discover_sessions
@@ -593,7 +703,7 @@ def send_usage_rollups(config: LinkConfig | None = None) -> int:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
 
     from riva.agents.registry import get_default_registry
 
@@ -649,7 +759,7 @@ def send_security_findings(config: LinkConfig | None = None) -> int:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
 
     from riva.core.audit import run_audit
 
@@ -696,7 +806,7 @@ def sync_once(config: LinkConfig | None = None) -> dict:
     """
     config = config or load_config()
     if config is None:
-        raise LinkError("not linked — run `riva link <server_url>` first")
+        raise LinkError("not linked — run `riva link start` first")
 
     heartbeat = send_heartbeat(config)
     result = {"heartbeat": heartbeat, "audit_ingested": 0, "forensic_sessions": 0}
@@ -726,6 +836,21 @@ def sync_once(config: LinkConfig | None = None) -> dict:
     return result
 
 
+def sync_all() -> dict[str, dict | LinkError]:
+    """Run ``sync_once`` against every linked server.
+
+    One server failing must not stop the others, so results are keyed by
+    server_url and hold either the sync result or the LinkError raised.
+    """
+    results: dict[str, dict | LinkError] = {}
+    for config in load_links():
+        try:
+            results[config.server_url] = sync_once(config)
+        except LinkError as e:
+            results[config.server_url] = e
+    return results
+
+
 def start_heartbeat(interval: float = DEFAULT_HEARTBEAT_INTERVAL) -> threading.Event:
     """Start a daemon thread that heartbeats every *interval* seconds.
 
@@ -739,10 +864,11 @@ def start_heartbeat(interval: float = DEFAULT_HEARTBEAT_INTERVAL) -> threading.E
         while not stop.is_set():
             if is_linked():
                 try:
-                    sync_once()
-                    logger.debug("sync sent (agents + audit + forensics)")
-                except LinkError as e:
-                    logger.debug("sync failed (will retry): %s", e)
+                    for url, outcome in sync_all().items():
+                        if isinstance(outcome, LinkError):
+                            logger.debug("sync to %s failed (will retry): %s", url, outcome)
+                        else:
+                            logger.debug("sync sent to %s (agents + audit + forensics)", url)
                 except Exception:
                     logger.exception("sync unexpected error")
             stop.wait(interval)

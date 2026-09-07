@@ -416,23 +416,25 @@
     if (el) el.addEventListener('change', function() { pollEvents(); });
   });
 
-  /* --- Server Link --- */
+  /* --- Server Link (one machine, many servers) --- */
   function initServerLink() {
     var unlinkedEl = document.getElementById('link-unlinked');
     var linkedEl = document.getElementById('link-linked');
     if (!unlinkedEl || !linkedEl) return;
 
+    var listEl = document.getElementById('link-list');
     var urlInput = document.getElementById('link-server-url');
+    var addLabel = document.getElementById('link-add-label');
+    var defaultHint = document.getElementById('link-default-hint');
     var startBtn = document.getElementById('link-start-btn');
     var pairingEl = document.getElementById('link-pairing');
     var codeEl = document.getElementById('link-code');
     var approveLink = document.getElementById('link-approve-url');
     var pairingStatus = document.getElementById('link-pairing-status');
     var errorEl = document.getElementById('link-error');
-    var syncBtn = document.getElementById('link-sync-btn');
-    var unlinkBtn = document.getElementById('link-unlink-btn');
 
     var pollTimer = null;
+    var userEditedUrl = false;
 
     function showError(msg) {
       errorEl.textContent = msg;
@@ -441,6 +443,11 @@
     function clearError() {
       errorEl.style.display = 'none';
       errorEl.textContent = '';
+    }
+    function esc(str) {
+      return String(str == null ? '' : str).replace(/[&<>"']/g, function(c) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+      });
     }
 
     function fmtAgo(ts) {
@@ -451,23 +458,43 @@
       return Math.floor(secs / 3600) + 'h ago';
     }
 
+    function norm(u) { return (u || '').trim().replace(/\/+$/, '').toLowerCase(); }
+
     function renderStatus(data) {
+      var links = (data && data.links) || [];
       var bubble = document.getElementById('settings-link-bubble');
-      if (bubble) bubble.classList.toggle('visible', !(data && data.linked));
-      if (data && data.linked) {
-        unlinkedEl.style.display = 'none';
-        linkedEl.style.display = 'block';
-        document.getElementById('link-detail-url').textContent = data.server_url || '—';
-        document.getElementById('link-detail-tenant').textContent = data.tenant_id || '—';
-        document.getElementById('link-detail-key').textContent = data.api_key_masked || '—';
-        document.getElementById('link-status-text').textContent =
-          'Linked to ' + (data.server_url || '') + ' (tenant: ' + (data.tenant_id || '') + ')';
-        document.getElementById('link-detail-synced').textContent =
-          data.last_synced ? ('Last synced ' + fmtAgo(data.last_synced)) : 'Syncing…';
-      } else {
+      if (bubble) bubble.classList.toggle('visible', links.length === 0);
+
+      // Default URL: prefill until the user types, and never suggest a server
+      // that is already linked.
+      var def = (data && data.default_server_url) || 'https://rivalabs.ai';
+      var alreadyDefault = links.some(function(l) { return norm(l.server_url) === norm(def); });
+      urlInput.placeholder = def;
+      if (!userEditedUrl) urlInput.value = alreadyDefault ? '' : def;
+      defaultHint.textContent = data && data.dev_mode
+        ? 'Dev mode (RIVA_DEV): defaults to your local server at ' + def + '.'
+        : (alreadyDefault ? 'Add another server, e.g. one your company hosts.' : 'Default: the hosted Riva service at ' + def + '.');
+      addLabel.textContent = links.length ? 'Add another server' : 'Server URL';
+
+      if (!links.length) {
         linkedEl.style.display = 'none';
-        unlinkedEl.style.display = 'block';
+        listEl.innerHTML = '';
+        return;
       }
+      linkedEl.style.display = 'block';
+      listEl.innerHTML = links.map(function(l, i) {
+        var tag = (links.length > 1 && i === 0) ? ' <span class="settings-hint" style="display:inline">(primary)</span>' : '';
+        return '<div class="link-status-card" data-url="' + esc(l.server_url) + '">' +
+          '<div class="link-status-row"><span class="status-dot live"></span>' +
+          '<span>Linked to <strong>' + esc(l.server_url) + '</strong>' + tag + '</span></div>' +
+          '<div class="link-detail"><span>Tenant</span><code>' + esc(l.tenant_id) + '</code></div>' +
+          '<div class="link-detail"><span>API key</span><code>' + esc(l.api_key_masked) + '</code></div>' +
+          '<div class="link-detail"><span>Sync</span><span>' + (l.last_synced ? ('Last synced ' + fmtAgo(l.last_synced)) : 'Syncing…') + '</span></div>' +
+          '<div class="link-card-actions">' +
+          '<button class="btn link-sync-btn">Sync now</button>' +
+          '<button class="btn btn-danger link-unlink-btn">Unlink</button>' +
+          '</div></div>';
+      }).join('');
     }
 
     async function refreshStatus() {
@@ -475,6 +502,11 @@
         var res = await fetch(window.rivaApiUrl('/link/status'));
         if (res.ok) renderStatus(await res.json());
       } catch (e) { /* ignore */ }
+    }
+
+    function resetStartBtn() {
+      startBtn.disabled = false;
+      startBtn.textContent = 'Link to Server';
     }
 
     async function tryRedeem(serverUrl, token) {
@@ -488,18 +520,20 @@
         if (res.ok && data.linked) {
           if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
           pairingEl.style.display = 'none';
-          startBtn.disabled = false;
-          startBtn.textContent = 'Link to Server';
-          renderStatus(data);
+          resetStartBtn();
+          userEditedUrl = false;
+          await refreshStatus();
           return true;
         }
       } catch (e) { /* keep polling */ }
       return false;
     }
 
+    urlInput.addEventListener('input', function() { userEditedUrl = true; });
+
     startBtn.addEventListener('click', async function() {
       clearError();
-      var serverUrl = (urlInput.value || '').trim();
+      var serverUrl = (urlInput.value || urlInput.placeholder || '').trim();
       if (!serverUrl) { showError('Enter a server URL.'); return; }
 
       startBtn.disabled = true;
@@ -513,7 +547,7 @@
           body: JSON.stringify({ server_url: serverUrl })
         });
         var data = await res.json();
-        if (!res.ok) { showError(data.error || 'Link failed.'); startBtn.disabled = false; startBtn.textContent = 'Link to Server'; return; }
+        if (!res.ok) { showError(data.error || 'Link failed.'); resetStartBtn(); return; }
 
         // Show approval affordances if the server requires it.
         if (data.code) { codeEl.textContent = data.code; codeEl.style.display = 'block'; }
@@ -535,35 +569,43 @@
           var attempts = 0;
           pollTimer = setInterval(async function() {
             attempts++;
-            if (attempts > 60) { clearInterval(pollTimer); pollTimer = null; pairingStatus.textContent = 'Approval timed out.'; startBtn.disabled = false; startBtn.textContent = 'Link to Server'; return; }
+            if (attempts > 60) { clearInterval(pollTimer); pollTimer = null; pairingStatus.textContent = 'Approval timed out.'; resetStartBtn(); return; }
             await tryRedeem(serverUrl, data.pairing_token);
           }, 2000);
         }
       } catch (e) {
         showError('Request failed.');
-        startBtn.disabled = false;
-        startBtn.textContent = 'Link to Server';
+        resetStartBtn();
       }
     });
 
-    syncBtn.addEventListener('click', async function() {
-      syncBtn.disabled = true;
-      var prev = syncBtn.textContent;
-      syncBtn.textContent = 'Syncing…';
+    // Per-server Sync / Unlink (delegated: cards are re-rendered on refresh).
+    listEl.addEventListener('click', async function(e) {
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      var card = btn.closest('.link-status-card');
+      var serverUrl = card && card.getAttribute('data-url');
+      if (!serverUrl) return;
+      var prev = btn.textContent;
+      btn.disabled = true;
       try {
-        await fetch(window.rivaApiUrl('/link/sync'), { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      await refreshStatus();
-      syncBtn.disabled = false;
-      syncBtn.textContent = prev;
-    });
-
-    unlinkBtn.addEventListener('click', async function() {
-      unlinkBtn.disabled = true;
-      try {
-        await fetch(window.rivaApiUrl('/link/unlink'), { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      unlinkBtn.disabled = false;
+        if (btn.classList.contains('link-sync-btn')) {
+          btn.textContent = 'Syncing…';
+          await fetch(window.rivaApiUrl('/link/sync'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ server_url: serverUrl })
+          });
+        } else if (btn.classList.contains('link-unlink-btn')) {
+          btn.textContent = 'Unlinking…';
+          await fetch(window.rivaApiUrl('/link/unlink'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ server_url: serverUrl })
+          });
+          userEditedUrl = false;
+        }
+      } catch (err) { /* ignore */ }
+      btn.disabled = false;
+      btn.textContent = prev;
       await refreshStatus();
     });
 

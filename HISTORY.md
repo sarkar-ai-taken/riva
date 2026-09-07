@@ -2,8 +2,29 @@
 
 ## v0.3.20 (2026-09-06)
 
-Pairs with Riva Server 0.1.0 (first hosted release). Focused on making the
-linked-machine path the default and hardening the link config.
+Pairs with Riva Server 0.1.0 (first hosted release at https://rivalabs.ai).
+Focused on making the linked-machine path the default and hardening the link
+config.
+
+### New
+
+- **Links to rivalabs.ai by default.** `riva link start` with no URL pairs
+  with the hosted service; the web Settings panel is prefilled with it. Set
+  `RIVA_DEV=1` to default to a local server (`http://localhost:8600`), or
+  `RIVA_SERVER_URL` to point anywhere. The community ping default moved to
+  rivalabs.ai as well.
+- **Link one machine to several Riva Servers.** `riva link start <url>` adds
+  a server rather than replacing the current one — e.g. rivalabs.ai plus a
+  company-hosted server. Each link keeps its own API key and sync cursors;
+  `riva link sync`, `riva fleet`, the heartbeat daemon and `riva link agents`
+  fan out to every linked server, and one server being down never blocks
+  the others. `riva link status` lists them all; `riva link unlink <url>`
+  removes one and `--all` removes every link. The web Settings panel shows a
+  card per server with its own Sync/Unlink and an "Add another server" form.
+  `~/.riva/server-link.json` moved to a `{"version": 2, "links": [...]}`
+  layout; a pre-0.3.20 single-link file is read as-is and upgraded on the
+  next save. `/api/link/status` gains `links`, `default_server_url` and
+  `dev_mode`; `/api/link/sync` and `/api/link/unlink` accept `server_url`.
 
 ### Changed
 

@@ -456,6 +456,10 @@ body {
   border-radius: var(--radius-sm);
   padding: 12px 14px;
 }
+.link-status-card + .link-status-card { margin-top: 10px; }
+.link-card-actions { display: flex; gap: 8px; margin-top: 10px; }
+.link-card-actions .btn { flex: 1; }
+#link-linked { margin-bottom: 14px; }
 .link-status-row {
   display: flex;
   align-items: center;

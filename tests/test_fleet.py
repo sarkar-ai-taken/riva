@@ -44,11 +44,50 @@ class TestFleetCLI:
         assert "3 findings" in result.output
         assert "2 usage rollups" in result.output
         assert "https://riva.co" in result.output
-        # No-arg calls: each push reloads the config rather than writing back
-        # a stale startup snapshot over the heartbeat daemon's sync cursors.
-        m_sec.assert_called_once_with()
-        m_use.assert_called_once_with()
+        # Each push passes a freshly reloaded config for that server rather
+        # than a stale startup snapshot (which would roll back the heartbeat
+        # daemon's sync cursors when saved).
+        m_sec.assert_called_once()
+        m_use.assert_called_once()
+        assert m_sec.call_args.args[0].server_url == "https://riva.co"
         m_legacy.assert_not_called()
+
+    def test_linked_to_several_servers_pushes_to_each(self, tmp_config, runner):
+        _link_machine("https://riva.co")
+        _link_machine("https://rivalabs.ai")
+        with (
+            patch.object(link, "send_security_findings", return_value=1) as m_sec,
+            patch.object(link, "send_usage_rollups", return_value=0) as m_use,
+            patch.object(fleet_report, "report_once") as m_legacy,
+        ):
+            result = runner.invoke(cli, ["fleet"])
+        assert result.exit_code == 0, result.output
+        assert result.output.count("Pushed") == 2
+        assert "https://riva.co" in result.output and "https://rivalabs.ai" in result.output
+        assert sorted(c.args[0].server_url for c in m_sec.call_args_list) == [
+            "https://riva.co",
+            "https://rivalabs.ai",
+        ]
+        assert m_use.call_count == 2
+        m_legacy.assert_not_called()
+
+    def test_one_server_failing_does_not_stop_the_others(self, tmp_config, runner):
+        _link_machine("https://riva.co")
+        _link_machine("https://rivalabs.ai")
+
+        def _sec(cfg):
+            if cfg.server_url == "https://riva.co":
+                raise link.LinkError("down")
+            return 2
+
+        with (
+            patch.object(link, "send_security_findings", side_effect=_sec),
+            patch.object(link, "send_usage_rollups", return_value=0),
+        ):
+            result = runner.invoke(cli, ["fleet"])
+        assert result.exit_code == 0, result.output
+        assert "Push failed" in result.output and "https://riva.co" in result.output
+        assert "Pushed 2 findings" in result.output and "https://rivalabs.ai" in result.output
 
     def test_linked_explicit_server_matching_uses_tenant_key_path(self, tmp_config, runner):
         _link_machine()
