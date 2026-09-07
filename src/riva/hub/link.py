@@ -91,29 +91,32 @@ def load_config() -> LinkConfig | None:
     """Return the stored link config, or None if not linked / unreadable."""
     if not CONFIG_FILE.is_file():
         return None
+    # A corrupt file (bad JSON, wrong-typed values, bad encoding) counts as
+    # unlinked rather than raising into every caller.
     try:
         raw = json.loads(CONFIG_FILE.read_text())
-    except (json.JSONDecodeError, OSError):
+        server_url = raw.get("server_url")
+        tenant_id = raw.get("tenant_id")
+        api_key = raw.get("api_key")
+        if not (server_url and tenant_id and api_key):
+            return None
+        return LinkConfig(
+            server_url=server_url.rstrip("/"),
+            tenant_id=tenant_id,
+            api_key=api_key,
+            linked_at=float(raw.get("linked_at", 0.0) or 0.0),
+            last_synced=float(raw.get("last_synced", 0.0) or 0.0),
+            audit_cursor=int(raw.get("audit_cursor", 0) or 0),
+            forensics_synced_at=float(raw.get("forensics_synced_at", 0.0) or 0.0),
+            usage_synced_at=float(raw.get("usage_synced_at", 0.0) or 0.0),
+            security_synced_at=float(raw.get("security_synced_at", 0.0) or 0.0),
+            geo_lat=raw.get("geo_lat"),
+            geo_lon=raw.get("geo_lon"),
+            geo_at=float(raw.get("geo_at", 0.0) or 0.0),
+        )
+    except (OSError, TypeError, ValueError, AttributeError):
+        # ValueError covers json.JSONDecodeError and UnicodeDecodeError.
         return None
-    server_url = raw.get("server_url")
-    tenant_id = raw.get("tenant_id")
-    api_key = raw.get("api_key")
-    if not (server_url and tenant_id and api_key):
-        return None
-    return LinkConfig(
-        server_url=server_url.rstrip("/"),
-        tenant_id=tenant_id,
-        api_key=api_key,
-        linked_at=float(raw.get("linked_at", 0.0) or 0.0),
-        last_synced=float(raw.get("last_synced", 0.0) or 0.0),
-        audit_cursor=int(raw.get("audit_cursor", 0) or 0),
-        forensics_synced_at=float(raw.get("forensics_synced_at", 0.0) or 0.0),
-        usage_synced_at=float(raw.get("usage_synced_at", 0.0) or 0.0),
-        security_synced_at=float(raw.get("security_synced_at", 0.0) or 0.0),
-        geo_lat=raw.get("geo_lat"),
-        geo_lon=raw.get("geo_lon"),
-        geo_at=float(raw.get("geo_at", 0.0) or 0.0),
-    )
 
 
 def save_config(config: LinkConfig) -> None:
@@ -156,14 +159,6 @@ def unlink(revoke: bool = True) -> bool:
 
 def is_linked() -> bool:
     return load_config() is not None
-
-
-def _touch_last_synced() -> None:
-    config = load_config()
-    if config is None:
-        return
-    config.last_synced = time.time()
-    save_config(config)
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +373,14 @@ def register_agent(agent: dict, config: LinkConfig | None = None) -> dict:
     if config is None:
         raise LinkError("not linked — run `riva link <server_url>` first")
     url = f"{_api_base(config.server_url)}/tenants/{config.tenant_id}/agents"
-    return _request("POST", url, agent, api_key=config.api_key)
+    # Machine identity keeps registration on the same device row the heartbeat
+    # writes to — without it the server would file the agent under no device.
+    payload = {
+        **agent,
+        "machine_name": _machine_name(),
+        "machine_id": _machine_id(),
+    }
+    return _request("POST", url, payload, api_key=config.api_key)
 
 
 def register_agents(config: LinkConfig | None = None) -> int:
@@ -447,7 +449,11 @@ def send_heartbeat(config: LinkConfig | None = None) -> dict:
     if location:
         payload["health"]["latitude"], payload["health"]["longitude"] = location
     result = _request("POST", url, payload, api_key=config.api_key)
-    _touch_last_synced()
+    # Stamp the config object we were handed, not a fresh copy from disk: the
+    # audit/forensics steps that follow in sync_once persist *this* object's
+    # cursors, and saving it with a stale last_synced would clobber the stamp.
+    config.last_synced = time.time()
+    save_config(config)
     return result
 
 

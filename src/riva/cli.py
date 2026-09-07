@@ -2710,6 +2710,11 @@ def fleet(
     contents stay on this machine. Lights up the server dashboard's Security
     and Usage tabs.
 
+    When this machine is linked (`riva link start <url>`) and the target is
+    the linked server, pushes authenticate with the tenant API key from the
+    pairing flow. The legacy client-key registration path is used only when
+    an explicit --server points at a different, non-linked server.
+
     \b
         riva fleet --server https://riva.mycompany.com --org acme-ai
         riva fleet --watch --interval 300
@@ -2717,36 +2722,47 @@ def fleet(
     import time as _t
 
     from riva.hub.fleet_report import FleetReportError, report_once
+    from riva.hub.link import LinkError, load_config, send_security_findings, send_usage_rollups
 
     console = Console()
 
-    # Resolve the server URL from the linked config if not given explicitly.
-    if not server_url:
-        try:
-            from riva.hub.link import load_config
-
-            cfg = load_config()
-            if cfg and cfg.server_url:
-                server_url = cfg.server_url
-        except Exception:
-            pass
+    # Prefer the tenant-key (riva link) path when linked and the target server
+    # is the linked one; fall back to the legacy client-key path only for an
+    # explicit --server pointing elsewhere.
+    link_cfg = load_config()
+    use_link = link_cfg is not None and (server_url is None or server_url.rstrip("/") == link_cfg.server_url)
+    if link_cfg is not None and use_link:
+        server_url = link_cfg.server_url
     if not server_url:
         console.print("[red]No server URL.[/red] Pass --server or run `riva link start <url>` first.")
         raise SystemExit(1)
 
+    if use_link and (org_name is not None or lat is not None or lon is not None):
+        console.print(
+            "[yellow]Note:[/yellow] --org/--lat/--lon are ignored on the linked path — "
+            "reports are filed under the linked tenant."
+        )
     org_name = org_name or "default"
 
     def _push() -> None:
-        summary = report_once(server_url, org_name, lat=lat, lon=lon)
+        if use_link:
+            # Reload the link config each push: send_* persist their sync
+            # cursors, and saving a stale startup snapshot here would roll
+            # back progress written concurrently by the heartbeat daemon.
+            n_findings = send_security_findings()
+            n_rollups = send_usage_rollups()
+        else:
+            summary = report_once(server_url, org_name, lat=lat, lon=lon)
+            n_findings = summary["security_findings"]
+            n_rollups = summary["usage_rollups"]
         console.print(
-            f"[green]Pushed[/green] {summary['security_findings']} findings, "
-            f"{summary['usage_rollups']} usage rollups → [cyan]{server_url}[/cyan]"
+            f"[green]Pushed[/green] {n_findings} findings, {n_rollups} usage rollups → [cyan]{server_url}[/cyan]"
         )
 
     if not watch:
         try:
             _push()
-        except FleetReportError as e:
+        except (FleetReportError, LinkError) as e:
             console.print(f"[red]Fleet report failed:[/red] {e}")
             raise SystemExit(1) from e
         return
@@ -2756,7 +2772,7 @@ def fleet(
         while True:
             try:
                 _push()
-            except FleetReportError as e:
+            except (FleetReportError, LinkError) as e:
                 console.print(f"[yellow]Report failed (will retry):[/yellow] {e}")
             _t.sleep(interval)
     except KeyboardInterrupt:

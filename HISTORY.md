@@ -1,5 +1,38 @@
 # Release History
 
+## v0.3.20 (2026-09-06)
+
+Pairs with Riva Server 0.1.0 (first hosted release). Focused on making the
+linked-machine path the default and hardening the link config.
+
+### Changed
+
+- **`riva fleet` uses the linked tenant key.** When the machine is linked
+  (`riva link start <url>`) and the target is the linked server (or no
+  `--server` is given), pushes authenticate with the pairing-flow API key and
+  are filed under the linked tenant. `--org`, `--lat` and `--lon` are ignored
+  on that path (a note says so). The legacy client-key registration path is
+  used only when an explicit `--server` points at a different, non-linked
+  server. Each push reloads the link config so sync cursors persisted by the
+  heartbeat daemon are never rolled back.
+- **Agent registration carries machine identity.** `riva link start` now
+  sends `machine_name` and `machine_id` with each registered agent, so the
+  server files it on the same device row the heartbeat writes to — no more
+  duplicate "frozen" agent rows next to the live ones.
+
+### Fixed
+
+- A corrupt `~/.riva/server-link.json` (bad JSON, wrong-typed values, bad
+  encoding) now reads as *not linked* instead of raising into every caller.
+- `riva link status` reported "Last synced: never" after a successful sync:
+  the audit/forensics steps saved a stale copy of the link config over the
+  heartbeat's timestamp.
+- Removed the `scratch_mock_server.py` development stub.
+
+### Tests
+
+- `tests/test_fleet.py` covers the linked vs legacy `riva fleet` paths.
+
 ## v0.3.19 (2026-07-14)
 
 ### New: `riva link` — device-authorization pairing with a Riva Server
