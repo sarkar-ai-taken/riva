@@ -66,8 +66,25 @@ def get_client_id() -> str:
 
 
 def get_endpoint() -> str:
+    """Community-ping endpoint, in priority order:
+
+    1. explicit ``endpoint`` override in hub.toml
+    2. the linked Riva Server (one copy: pings go to the same server the
+       machine is linked to — see the rivaai.io convergence plan)
+    3. the public default (``HUB_ENDPOINT``)
+    """
     raw = _read_raw()
-    return raw.get("endpoint", HUB_ENDPOINT)
+    if raw.get("endpoint"):
+        return raw["endpoint"]
+    try:
+        from riva.hub.link import load_config
+
+        link = load_config()
+        if link is not None:
+            return f"{link.server_url}/api/v1/ping"
+    except Exception:
+        pass
+    return HUB_ENDPOINT
 
 
 # ---------------------------------------------------------------------------

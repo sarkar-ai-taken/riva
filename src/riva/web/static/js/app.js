@@ -103,6 +103,7 @@
       panel.classList.add('open');
       overlay.classList.add('open');
     }
+    window.rivaOpenSettings = openSettings;
     function closeSettings() {
       panel.classList.remove('open');
       overlay.classList.remove('open');
@@ -180,52 +181,51 @@
       if (responses[2].ok) { var d = await responses[2].json(); renderRegistryTable(d.agents || []); }
       if (responses[3].ok) { var d = await responses[3].json(); renderConfigs(d.configs || []); }
 
-      // Fetch historical data for usage tab
-      if (currentTab === 'usage') {
-        try {
-          var histRes = await fetch(window.rivaApiUrl('/history?hours=1'));
-          if (histRes.ok) {
-            var histData = await histRes.json();
-            renderHistoricalChart(histData.snapshots || []);
-          }
-        } catch (e) {}
-      }
+      // Autoload: fetch every tab's data so switching tabs is instant.
+      // The active tab still gets 2s updates via pollFast where applicable.
+      try {
+        var histRes = await fetch(window.rivaApiUrl('/history?hours=1'));
+        if (histRes.ok) {
+          var histData = await histRes.json();
+          renderHistoricalChart(histData.snapshots || []);
+        }
+      } catch (e) {}
 
-      // Fetch forensic data when on forensics tab
-      if (currentTab === 'forensics') {
-        try {
-          var fSessions = await fetch(window.rivaApiUrl('/forensic/sessions'));
-          if (fSessions.ok) {
-            var fData = await fSessions.json();
-            renderForensicSessions(fData.sessions || []);
-          }
-        } catch (e) {}
-        try {
-          var fTrends = await fetch(window.rivaApiUrl('/forensic/trends'));
-          if (fTrends.ok) {
-            var tData = await fTrends.json();
-            renderForensicTrends(tData.trends || {});
-          }
-        } catch (e) {}
-      }
+      try {
+        var fSessions = await fetch(window.rivaApiUrl('/forensic/sessions'));
+        if (fSessions.ok) {
+          var fData = await fSessions.json();
+          renderForensicSessions(fData.sessions || []);
+        }
+      } catch (e) {}
+      try {
+        var fTrends = await fetch(window.rivaApiUrl('/forensic/trends'));
+        if (fTrends.ok) {
+          var tData = await fTrends.json();
+          renderForensicTrends(tData.trends || {});
+        }
+      } catch (e) {}
 
-      // Fetch skills data when on skills tab
-      if (currentTab === 'skills') {
-        try {
-          var skRes = await fetch(window.rivaApiUrl('/skills'));
-          if (skRes.ok) {
-            var skData = await skRes.json();
-            renderSkills(skData.skills || []);
-          }
-        } catch (e) {}
-      }
+      try {
+        var skRes = await fetch(window.rivaApiUrl('/skills'));
+        if (skRes.ok) {
+          var skData = await skRes.json();
+          renderSkills(skData.skills || []);
+        }
+      } catch (e) {}
 
-      // Fetch events when on events tab
-      if (currentTab === 'events') {
-        try {
-          await pollEvents();
-        } catch (e) {}
-      }
+      try {
+        await pollEvents();
+      } catch (e) {}
+
+      // Preload the network tab too (pollFast refreshes it while viewing).
+      try {
+        var netRes = await fetch(window.rivaApiUrl('/network'));
+        if (netRes.ok) {
+          var netData = await netRes.json();
+          renderNetworkTable(netData.network || []);
+        }
+      } catch (e) {}
 
       setConnection(true);
       updateTimestamp();
@@ -416,11 +416,183 @@
     if (el) el.addEventListener('change', function() { pollEvents(); });
   });
 
+  /* --- Server Link --- */
+  function initServerLink() {
+    var unlinkedEl = document.getElementById('link-unlinked');
+    var linkedEl = document.getElementById('link-linked');
+    if (!unlinkedEl || !linkedEl) return;
+
+    var urlInput = document.getElementById('link-server-url');
+    var startBtn = document.getElementById('link-start-btn');
+    var pairingEl = document.getElementById('link-pairing');
+    var codeEl = document.getElementById('link-code');
+    var approveLink = document.getElementById('link-approve-url');
+    var pairingStatus = document.getElementById('link-pairing-status');
+    var errorEl = document.getElementById('link-error');
+    var syncBtn = document.getElementById('link-sync-btn');
+    var unlinkBtn = document.getElementById('link-unlink-btn');
+
+    var pollTimer = null;
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = 'block';
+    }
+    function clearError() {
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+    }
+
+    function fmtAgo(ts) {
+      if (!ts) return 'never';
+      var secs = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+      if (secs < 60) return secs + 's ago';
+      if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+      return Math.floor(secs / 3600) + 'h ago';
+    }
+
+    function renderStatus(data) {
+      var bubble = document.getElementById('settings-link-bubble');
+      if (bubble) bubble.classList.toggle('visible', !(data && data.linked));
+      if (data && data.linked) {
+        unlinkedEl.style.display = 'none';
+        linkedEl.style.display = 'block';
+        document.getElementById('link-detail-url').textContent = data.server_url || '—';
+        document.getElementById('link-detail-tenant').textContent = data.tenant_id || '—';
+        document.getElementById('link-detail-key').textContent = data.api_key_masked || '—';
+        document.getElementById('link-status-text').textContent =
+          'Linked to ' + (data.server_url || '') + ' (tenant: ' + (data.tenant_id || '') + ')';
+        document.getElementById('link-detail-synced').textContent =
+          data.last_synced ? ('Last synced ' + fmtAgo(data.last_synced)) : 'Syncing…';
+      } else {
+        linkedEl.style.display = 'none';
+        unlinkedEl.style.display = 'block';
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        var res = await fetch(window.rivaApiUrl('/link/status'));
+        if (res.ok) renderStatus(await res.json());
+      } catch (e) { /* ignore */ }
+    }
+
+    async function tryRedeem(serverUrl, token) {
+      try {
+        var res = await fetch(window.rivaApiUrl('/link/redeem'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ server_url: serverUrl, pairing_token: token })
+        });
+        var data = await res.json();
+        if (res.ok && data.linked) {
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          pairingEl.style.display = 'none';
+          startBtn.disabled = false;
+          startBtn.textContent = 'Link to Server';
+          renderStatus(data);
+          return true;
+        }
+      } catch (e) { /* keep polling */ }
+      return false;
+    }
+
+    startBtn.addEventListener('click', async function() {
+      clearError();
+      var serverUrl = (urlInput.value || '').trim();
+      if (!serverUrl) { showError('Enter a server URL.'); return; }
+
+      startBtn.disabled = true;
+      startBtn.textContent = 'Requesting…';
+      pairingEl.style.display = 'none';
+
+      try {
+        var res = await fetch(window.rivaApiUrl('/link/start'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ server_url: serverUrl })
+        });
+        var data = await res.json();
+        if (!res.ok) { showError(data.error || 'Link failed.'); startBtn.disabled = false; startBtn.textContent = 'Link to Server'; return; }
+
+        // Show approval affordances if the server requires it.
+        if (data.code) { codeEl.textContent = data.code; codeEl.style.display = 'block'; }
+        else { codeEl.style.display = 'none'; }
+        if (data.approve_url) {
+          approveLink.href = data.approve_url;
+          approveLink.style.display = 'inline';
+          // Open the server's login/approve page right away — the user signs
+          // in there, confirms the code matches, and approves.
+          try { window.open(data.approve_url, '_blank', 'noopener'); } catch (e) { /* popup blocked — link stays visible */ }
+        }
+        else { approveLink.style.display = 'none'; }
+        pairingEl.style.display = 'block';
+        startBtn.textContent = 'Waiting for approval…';
+
+        // Attempt redeem immediately (auto-approve), then poll.
+        var done = await tryRedeem(serverUrl, data.pairing_token);
+        if (!done) {
+          var attempts = 0;
+          pollTimer = setInterval(async function() {
+            attempts++;
+            if (attempts > 60) { clearInterval(pollTimer); pollTimer = null; pairingStatus.textContent = 'Approval timed out.'; startBtn.disabled = false; startBtn.textContent = 'Link to Server'; return; }
+            await tryRedeem(serverUrl, data.pairing_token);
+          }, 2000);
+        }
+      } catch (e) {
+        showError('Request failed.');
+        startBtn.disabled = false;
+        startBtn.textContent = 'Link to Server';
+      }
+    });
+
+    syncBtn.addEventListener('click', async function() {
+      syncBtn.disabled = true;
+      var prev = syncBtn.textContent;
+      syncBtn.textContent = 'Syncing…';
+      try {
+        await fetch(window.rivaApiUrl('/link/sync'), { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      await refreshStatus();
+      syncBtn.disabled = false;
+      syncBtn.textContent = prev;
+    });
+
+    unlinkBtn.addEventListener('click', async function() {
+      unlinkBtn.disabled = true;
+      try {
+        await fetch(window.rivaApiUrl('/link/unlink'), { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      unlinkBtn.disabled = false;
+      await refreshStatus();
+    });
+
+    var bubble = document.getElementById('settings-link-bubble');
+    if (bubble) {
+      bubble.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (window.rivaOpenSettings) window.rivaOpenSettings();
+        var section = document.getElementById('server-link-section');
+        if (section) {
+          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          section.classList.remove('flash-highlight');
+          void section.offsetWidth; // restart the animation
+          section.classList.add('flash-highlight');
+        }
+      });
+    }
+
+    refreshStatus();
+    // Keep the linked-status view fresh (last-synced ticks) every 10s.
+    setInterval(refreshStatus, 10000);
+  }
+
   /* --- Init --- */
   initSidebar();
   initTabs();
   initTheme();
   initSettings();
+  initServerLink();
   pollFast();
   pollSlow();
 

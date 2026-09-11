@@ -76,8 +76,8 @@ class ClaudeCodeDetector(AgentDetector):
             except (json.JSONDecodeError, OSError):
                 data = {}
 
-            # Model token aggregates
-            for model_id, info in data.get("modelTokens", {}).items():
+            # Model token aggregates — "modelTokens" (legacy) or "modelUsage" (current)
+            for model_id, info in (data.get("modelTokens") or data.get("modelUsage") or {}).items():
                 usage = TokenUsage(
                     input_tokens=info.get("inputTokens", 0),
                     output_tokens=info.get("outputTokens", 0),
@@ -87,13 +87,24 @@ class ClaudeCodeDetector(AgentDetector):
                 model_stats[model_id] = ModelStats(model_id=model_id, usage=usage)
                 total_tokens += usage.total_tokens
 
+            # Per-day token totals — current schema keeps them in dailyModelTokens
+            daily_tokens: dict[str, int] = {}
+            for entry in data.get("dailyModelTokens", []):
+                tokens_by_model = entry.get("tokensByModel", {})
+                if isinstance(tokens_by_model, dict):
+                    daily_tokens[entry.get("date", "")] = sum(
+                        int(v) for v in tokens_by_model.values() if isinstance(v, (int, float))
+                    )
+
             # Daily activity
             for entry in data.get("dailyActivity", []):
+                date = entry.get("date", "")
                 ds = DailyStats(
-                    date=entry.get("date", ""),
+                    date=date,
                     message_count=entry.get("messageCount", 0),
                     session_count=entry.get("sessionCount", 0),
-                    total_tokens=entry.get("totalTokens", 0),
+                    tool_call_count=entry.get("toolCallCount", 0),
+                    total_tokens=entry.get("totalTokens", 0) or daily_tokens.get(date, 0),
                 )
                 daily_activity.append(ds)
                 total_messages += ds.message_count
@@ -134,10 +145,6 @@ class ClaudeCodeDetector(AgentDetector):
                             name = block.get("name", "unknown")
                             tool_counts[name] += 1
                             total_tool_calls += 1
-
-        # Update daily activity with tool counts
-        for ds in daily_activity:
-            ds.tool_call_count = 0  # We don't have per-day tool breakdown from cache
 
         tool_stats = [
             ToolCallStats(

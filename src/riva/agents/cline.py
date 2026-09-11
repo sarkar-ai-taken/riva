@@ -3,9 +3,23 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from riva.agents.base import AgentDetector
+from riva.core.usage_stats import (
+    DailyStats,
+    ModelStats,
+    TokenUsage,
+    ToolCallStats,
+    UsageStats,
+)
+
+# Editors whose globalStorage may host the Cline extension state
+_EDITOR_DIRS = ["Code", "Code - Insiders", "VSCodium", "Cursor", "Windsurf"]
 
 
 class ClineDetector(AgentDetector):
@@ -55,6 +69,177 @@ class ClineDetector(AgentDetector):
 
     def is_installed(self) -> bool:
         return self._find_extension_dir() is not None
+
+    # ------------------------------------------------------------------
+    # Usage statistics
+    # ------------------------------------------------------------------
+
+    def _tasks_dirs(self) -> list[Path]:
+        """Find Cline task-history directories across editor globalStorage roots."""
+        home = Path.home()
+        bases: list[Path] = []
+        if sys.platform == "darwin":
+            bases.append(home / "Library" / "Application Support")
+        elif sys.platform == "win32":
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                bases.append(Path(appdata))
+        else:
+            bases.append(home / ".config")
+
+        dirs: list[Path] = []
+        for base in bases:
+            for editor in _EDITOR_DIRS:
+                tasks = base / editor / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "tasks"
+                if tasks.is_dir():
+                    dirs.append(tasks)
+        return dirs
+
+    def parse_usage(self) -> UsageStats | None:
+        """Parse usage stats from Cline task history.
+
+        Scans ``<globalStorage>/saoudrizwan.claude-dev/tasks/<id>/``:
+        - ``ui_messages.json`` — ``api_req_started`` entries carry
+          tokensIn/tokensOut/cacheWrites/cacheReads; ``tool`` entries name tools
+        - ``task_metadata.json`` — ``model_usage`` records the model ids
+        """
+        try:
+            return self._parse_usage_inner()
+        except Exception:
+            return None
+
+    def _parse_usage_inner(self) -> UsageStats | None:
+        task_dirs: list[Path] = []
+        for root in self._tasks_dirs():
+            try:
+                task_dirs.extend(d for d in root.iterdir() if d.is_dir())
+            except OSError:
+                continue
+        if not task_dirs:
+            return None
+
+        # Most recent 50 tasks by directory mtime
+        task_dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+        task_dirs = task_dirs[:50]
+
+        model_tokens: dict[str, TokenUsage] = defaultdict(TokenUsage)
+        tool_counts: dict[str, int] = defaultdict(int)
+        tool_last_used: dict[str, str] = {}
+        daily_counts: dict[str, dict] = defaultdict(lambda: {"messages": 0, "sessions": 0, "tokens": 0, "tools": 0})
+        total_sessions = 0
+        total_messages = 0
+        total_tool_calls = 0
+
+        for task_dir in task_dirs:
+            ui_file = task_dir / "ui_messages.json"
+            if not ui_file.is_file():
+                continue
+            try:
+                entries = json.loads(ui_file.read_text(errors="replace"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(entries, list):
+                continue
+
+            # Model id for this task (last one wins) from task_metadata.json
+            model_id = "unknown"
+            meta_file = task_dir / "task_metadata.json"
+            if meta_file.is_file():
+                try:
+                    meta = json.loads(meta_file.read_text(errors="replace"))
+                    usage_entries = meta.get("model_usage", [])
+                    if isinstance(usage_entries, list) and usage_entries:
+                        last = usage_entries[-1]
+                        if isinstance(last, dict):
+                            model_id = last.get("model_id", model_id)
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            total_sessions += 1
+            task_date = ""
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                ts_ms = entry.get("ts")
+                date_key = ""
+                ts_iso = ""
+                if isinstance(ts_ms, (int, float)) and ts_ms > 0:
+                    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+                    date_key = dt.strftime("%Y-%m-%d")
+                    ts_iso = dt.isoformat()
+                    if not task_date:
+                        task_date = date_key
+
+                say = entry.get("say", "")
+                if say == "api_req_started":
+                    try:
+                        info = json.loads(entry.get("text", "") or "{}")
+                    except (json.JSONDecodeError, ValueError):
+                        info = {}
+                    if not isinstance(info, dict):
+                        continue
+                    usage = model_tokens[model_id]
+                    usage.input_tokens += info.get("tokensIn", 0)
+                    usage.output_tokens += info.get("tokensOut", 0)
+                    usage.cache_read_input_tokens += info.get("cacheReads", 0)
+                    usage.cache_creation_input_tokens += info.get("cacheWrites", 0)
+                    total_messages += 1
+                    if date_key:
+                        daily_counts[date_key]["messages"] += 1
+                        daily_counts[date_key]["tokens"] += info.get("tokensIn", 0) + info.get("tokensOut", 0)
+                elif say == "tool" or entry.get("ask") == "tool":
+                    try:
+                        info = json.loads(entry.get("text", "") or "{}")
+                    except (json.JSONDecodeError, ValueError):
+                        info = {}
+                    name = info.get("tool", "unknown") if isinstance(info, dict) else "unknown"
+                    tool_counts[name] += 1
+                    total_tool_calls += 1
+                    if ts_iso:
+                        tool_last_used[name] = ts_iso
+                    if date_key:
+                        daily_counts[date_key]["tools"] += 1
+
+            if task_date:
+                daily_counts[task_date]["sessions"] += 1
+
+        if not total_messages and not total_tool_calls:
+            return None
+
+        model_stats: dict[str, ModelStats] = {}
+        total_tokens = 0
+        for mid, usage in model_tokens.items():
+            model_stats[mid] = ModelStats(model_id=mid, usage=usage)
+            total_tokens += usage.total_tokens
+
+        tool_stats = [
+            ToolCallStats(tool_name=name, call_count=count, last_used=tool_last_used.get(name))
+            for name, count in tool_counts.items()
+        ]
+
+        daily_activity = [
+            DailyStats(
+                date=date_str,
+                message_count=dc["messages"],
+                session_count=dc["sessions"],
+                tool_call_count=dc["tools"],
+                total_tokens=dc["tokens"],
+            )
+            for date_str, dc in sorted(daily_counts.items())
+        ]
+
+        return UsageStats(
+            model_stats=model_stats,
+            tool_stats=tool_stats,
+            daily_activity=daily_activity,
+            total_tokens=total_tokens,
+            total_messages=total_messages,
+            total_sessions=total_sessions,
+            total_tool_calls=total_tool_calls,
+            time_range_start=daily_activity[0].date if daily_activity else None,
+            time_range_end=daily_activity[-1].date if daily_activity else None,
+        )
 
     def parse_config(self) -> dict:
         config: dict = {}

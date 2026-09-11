@@ -1,5 +1,64 @@
 # Release History
 
+## v0.3.19 (2026-07-14)
+
+### New: `riva link` — device-authorization pairing with a Riva Server
+
+A browser-based pairing flow that replaces manual tokens: the machine asks the
+server to pair, the user signs in and approves a short code, and the tool
+finishes linking automatically.
+
+- **`riva link start <server_url>`** — requests pairing, opens the server's
+  approve page in the browser, shows the code in the terminal, and polls until
+  approved. Credentials (per-tenant API key) are stored in `~/.riva/server-link.json`.
+- **`riva link status` / `riva link sync [--watch]` / `riva link unlink`** —
+  inspect, force a sync, or disconnect. Unlink **revokes the API key
+  server-side** (best-effort) so leaked credential copies stop working.
+- Device identity is a stable machine id (the hub `client_id` UUID), not the
+  hostname — two machines named "mac" never collide on the server.
+
+### Automatic roll-up sync (every 30s, no manual steps)
+
+Once linked, the client continuously rolls local data up to the server:
+
+- **Agents + lifecycle events** — the server diffs each heartbeat into
+  `agent_started` / `agent_stopped` / `agent_detected` events. Agent counts are
+  unique types per machine (N processes of one agent count once).
+- **Audit log** — the local tamper-evident chain uploads incrementally
+  (cursor-tracked, deduped by `event_id`); the server verifies each entry's
+  HMAC on arrival.
+- **Forensics** — session summaries with real metrics (tokens, actions, files
+  read/written, dead ends, efficiency) via on-device deep parse.
+- **Usage rollups** — per-agent, per-model token totals.
+- **Security findings** — the local `riva audit` scan results (metadata only).
+- **Location (opt-in)** — approximate geo-IP coordinates for the server map,
+  gated by the same consent flag as the community ping and cached weekly.
+
+### Community ping convergence
+
+- `riva ping` now targets the linked Riva Server when linked (override with
+  `endpoint` in hub.toml); payloads carry the client id so a machine that both
+  pinged and linked appears once on the public map, as a linked device.
+
+### Web dashboard
+
+- **Server-link bubble** — a pulsing badge on Settings whenever the machine is
+  not linked; clicking it opens Settings scrolled to the Riva Server section.
+- **All tabs preload** — every tab's data loads on startup and refreshes every
+  30s; no more empty tabs on first switch.
+- **Usage table** — sorted by total tokens by default, sortable columns with
+  correct numeric ordering, and honest `n/a` for clients that don't store
+  usage locally (Claude Desktop, Cursor, Copilot, ...) instead of a misleading 0.
+
+### Usage statistics fixes
+
+- New local usage parsers: **Gemini CLI**, **OpenCode**, **Cline**.
+- **Claude Code**: support the current `stats-cache.json` schema
+  (`modelUsage` / `dailyModelTokens`) — token totals were reading 0.
+- **Codex CLI**: current session schema (`payload.info.last_token_usage`,
+  `session_meta.id`, `turn_context` model) — sessions/tokens were reading 0.
+
+
 ## v0.3.18 (2026-06-06)
 
 ### New: Riva Server connect & report

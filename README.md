@@ -441,6 +441,41 @@ Each snapshot mirrors the local `/api/agents` shape (running agents, CPU/memory,
 
 The static web dashboard is also embeddable: a parent frame can point it at a remote, authenticated API via `postMessage({ type: 'riva:configure', apiBase, accessToken })`.
 
+### `riva link` — Pair with a Riva Server (browser approval)
+
+The newer, self-service way to join a machine to a Riva Server fleet — no
+pre-minted token needed. The device asks to pair; you approve it in the
+browser.
+
+```bash
+riva link start https://riva.example    # opens the browser: sign in + approve the code
+riva link status                        # show the current link
+riva link sync                          # force one full roll-up now
+riva link sync --watch                  # keep syncing in the foreground
+riva link unlink                        # revoke this machine's key + disconnect
+```
+
+1. `riva link start <url>` prints a short approval code (e.g. `XKCD-9214`) and
+   opens the server's approve page.
+2. Sign in, confirm the code matches, click **Approve device**.
+3. The CLI finishes automatically and stores a per-tenant API key in
+   `~/.riva/server-link.json`.
+
+Once linked, the client **auto-syncs every 30 seconds** (the web dashboard
+starts the loop automatically): agent status and lifecycle events, the
+tamper-evident audit log (HMAC-verified server-side), forensic session
+metrics, per-model usage rollups, security-scan findings, and — with the same
+consent as `riva ping` — approximate geo-IP location for the server map.
+
+Only metadata and aggregates leave the machine: no prompts, transcripts, file
+contents, or secrets. Device identity is a stable machine id, so renaming a
+host (or having two machines with the same hostname) never mixes up fleet
+data. `riva link unlink` revokes the machine's API key on the server, so old
+credential copies stop working immediately; server-side history is retained.
+
+The local web dashboard shows a pulsing badge on **Settings** whenever the
+machine is not linked — click it to jump straight to the link form.
+
 ---
 
 ## Event Stream — Real-time Tool-call Visibility

@@ -152,21 +152,36 @@ function renderAuditDashboard(auditData) {
 function renderStatsTable(stats) {
   var wrap = document.getElementById('stats-table-wrap');
   if (!stats.length) { wrap.innerHTML = '<p class="empty-msg">No usage data</p>'; return; }
-  var h = '<table id="tbl-stats"><thead><tr><th>Agent</th><th>Status</th><th>Total Tokens</th><th>Sessions</th><th>Messages</th><th>Tool Calls</th><th>Period</th></tr></thead><tbody>';
-  stats.forEach(function(s) {
+  // Default ordering: heaviest token usage first. Click any header to re-sort.
+  var ordered = stats.slice().sort(function(a, b) { return (b.total_tokens || 0) - (a.total_tokens || 0); });
+  var h = '<table id="tbl-stats"><thead><tr><th>Agent</th><th>Status</th><th data-sort-dir="desc">Total Tokens</th><th>Sessions</th><th>Messages</th><th>Tool Calls</th><th>Period</th></tr></thead><tbody>';
+  var hasUnsupported = false;
+  ordered.forEach(function(s) {
+    if (s.usage_supported === false) {
+      // Client keeps usage server-side \u2014 show n/a, not a misleading 0.
+      hasUnsupported = true;
+      h += '<tr><td>' + esc(s.name) + '</td><td>' + statusBadge(s.status) + '</td>' +
+        '<td data-sort="-1" class="muted">n/a</td><td class="muted">n/a</td>' +
+        '<td class="muted">n/a</td><td class="muted">n/a</td><td class="muted">n/a</td></tr>';
+      return;
+    }
     var period = (s.time_range_start && s.time_range_end) ? esc(s.time_range_start) + ' \u2014 ' + esc(s.time_range_end) : '\u2014';
     h += '<tr><td>' + esc(s.name) + '</td><td>' + statusBadge(s.status) + '</td>' +
-      '<td>' + esc(s.total_tokens_formatted) + '</td><td>' + s.total_sessions + '</td>' +
+      '<td data-sort="' + (s.total_tokens || 0) + '">' + esc(s.total_tokens_formatted) + '</td><td>' + s.total_sessions + '</td>' +
       '<td>' + s.total_messages + '</td><td>' + s.total_tool_calls + '</td><td>' + period + '</td></tr>';
   });
   h += '</tbody></table>';
+  if (hasUnsupported) {
+    h += '<p class="empty-msg" style="margin-top:6px">n/a \u2014 client does not store usage data locally (kept on its own servers)</p>';
+  }
   wrap.innerHTML = h;
   makeSortable(document.getElementById('tbl-stats'));
 }
 
 function renderStatsCards(stats) {
   var el = document.getElementById('stats-cards');
-  var withData = stats.filter(function(s) { return s.total_tokens > 0; });
+  var withData = stats.filter(function(s) { return s.total_tokens > 0; })
+    .sort(function(a, b) { return (b.total_tokens || 0) - (a.total_tokens || 0); });
   if (!withData.length) { el.innerHTML = '<p class="empty-msg">No detailed usage data</p>'; return; }
   el.innerHTML = withData.map(function(s) {
     var modelsHtml = '';

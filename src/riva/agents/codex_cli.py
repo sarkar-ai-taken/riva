@@ -73,32 +73,46 @@ class CodexCLIDetector(AgentDetector):
         total_tool_calls = 0
 
         for sf in session_files:
+            file_model = "unknown"
             for record in stream_jsonl(sf, max_lines=2000):
                 event_type = record.get("type", "")
                 payload = record.get("payload", {})
                 ts = record.get("timestamp", "")
                 date_key = ts[:10] if len(ts) >= 10 else ""
 
-                # Session metadata
+                # Session metadata — payload key is "id" (current) or "session_id" (legacy)
                 if event_type == "session_meta":
-                    sid = payload.get("session_id", "")
+                    sid = payload.get("session_id") or payload.get("id") or ""
                     if sid:
                         session_ids.add(sid)
+                    if payload.get("model"):
+                        file_model = payload["model"]
                     if date_key:
                         daily_counts[date_key]["sessions"] += 1
 
-                # Token counts
+                # Current Codex records the active model in turn_context events
+                if event_type == "turn_context" and payload.get("model"):
+                    file_model = payload["model"]
+
+                # Token counts — flat payload fields (legacy) or payload.info
+                # with per-turn "last_token_usage" (current)
                 if event_type == "event_msg" and payload.get("type") == "token_count":
-                    model = payload.get("model", "unknown")
+                    info = payload.get("info") or {}
+                    counts = info.get("last_token_usage") if isinstance(info, dict) else None
+                    if not isinstance(counts, dict):
+                        counts = payload
+                    model = payload.get("model") or file_model
                     usage = model_tokens[model]
-                    usage.input_tokens += payload.get("input_tokens", 0)
-                    usage.output_tokens += payload.get("output_tokens", 0)
-                    usage.cache_read_input_tokens += payload.get("cache_read_input_tokens", 0)
-                    usage.cache_creation_input_tokens += payload.get("cache_creation_input_tokens", 0)
+                    usage.input_tokens += counts.get("input_tokens", 0)
+                    usage.output_tokens += counts.get("output_tokens", 0) + counts.get("reasoning_output_tokens", 0)
+                    usage.cache_read_input_tokens += counts.get("cache_read_input_tokens", 0) + counts.get(
+                        "cached_input_tokens", 0
+                    )
+                    usage.cache_creation_input_tokens += counts.get("cache_creation_input_tokens", 0)
                     total_messages += 1
                     if date_key:
                         daily_counts[date_key]["messages"] += 1
-                        daily_counts[date_key]["tokens"] += payload.get("input_tokens", 0) + payload.get(
+                        daily_counts[date_key]["tokens"] += counts.get("input_tokens", 0) + counts.get(
                             "output_tokens", 0
                         )
 
