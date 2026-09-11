@@ -576,12 +576,21 @@ def create_app(auth_token: str | None = None) -> Flask:
 
     @app.route("/api/link/status")
     def api_link_status():
-        from riva.hub.link import load_config
+        from riva.hub.link import default_server_url, is_dev_mode, load_links
 
-        config = load_config()
-        if config is None:
-            return jsonify({"linked": False})
-        return jsonify({"linked": True, **config.redacted()})
+        links = load_links()
+        # Top-level fields mirror the primary link for older callers; the
+        # full list is under "links".
+        primary = links[0].redacted() if links else {}
+        return jsonify(
+            {
+                "linked": bool(links),
+                "links": [c.redacted() for c in links],
+                "default_server_url": default_server_url(),
+                "dev_mode": is_dev_mode(),
+                **primary,
+            }
+        )
 
     @app.route("/api/link/start", methods=["POST"])
     def api_link_start():
@@ -627,26 +636,57 @@ def create_app(auth_token: str | None = None) -> Flask:
 
     @app.route("/api/link/sync", methods=["POST"])
     def api_link_sync():
-        from riva.hub.link import LinkError, sync_once
+        """Sync every linked server, or just ``server_url`` when given."""
+        from riva.hub.link import LinkError, load_config, sync_all, sync_once
 
-        try:
-            result = sync_once()
-        except LinkError as e:
-            return jsonify({"error": str(e)}), 502
-        return jsonify(
-            {
-                "ok": True,
-                "audit_ingested": result["audit_ingested"],
-                "forensic_sessions": result["forensic_sessions"],
-            }
-        )
+        data = request.get_json(silent=True) or {}
+        server_url = (data.get("server_url") or "").strip()
+        if server_url:
+            config = load_config(server_url)
+            if config is None:
+                return jsonify({"error": f"not linked to {server_url}"}), 404
+            try:
+                results = {config.server_url: sync_once(config)}
+            except LinkError as e:
+                return jsonify({"error": str(e)}), 502
+        else:
+            results = sync_all()
+        per_server = {}
+        audit = sessions = 0
+        for url, outcome in results.items():
+            if isinstance(outcome, LinkError):
+                per_server[url] = {"ok": False, "error": str(outcome)}
+            else:
+                audit += outcome["audit_ingested"]
+                sessions += outcome["forensic_sessions"]
+                per_server[url] = {
+                    "ok": True,
+                    "audit_ingested": outcome["audit_ingested"],
+                    "forensic_sessions": outcome["forensic_sessions"],
+                }
+        ok = any(v["ok"] for v in per_server.values())
+        body = {"ok": ok, "audit_ingested": audit, "forensic_sessions": sessions, "servers": per_server}
+        if not ok and per_server:
+            return jsonify({**body, "error": "; ".join(v["error"] for v in per_server.values())}), 502
+        return jsonify(body)
 
     @app.route("/api/link/unlink", methods=["POST"])
     def api_link_unlink():
+        """Unlink one server (``server_url``) or every server when omitted."""
+        from riva.hub.link import load_links
         from riva.hub.link import unlink as _unlink
 
-        _unlink(revoke=True)
-        return jsonify({"linked": False})
+        data = request.get_json(silent=True) or {}
+        server_url = (data.get("server_url") or "").strip() or None
+        removed = _unlink(revoke=True, server_url=server_url)
+        remaining = load_links()
+        return jsonify(
+            {
+                "linked": bool(remaining),
+                "removed": removed,
+                "links": [c.redacted() for c in remaining],
+            }
+        )
 
     @app.route("/api/open-file", methods=["POST"])
     def api_open_file():

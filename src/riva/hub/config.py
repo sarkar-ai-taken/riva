@@ -13,7 +13,7 @@ from pathlib import Path
 _CONSENTED = "yes"
 _DECLINED = "no"
 
-HUB_ENDPOINT = "https://sarkar.ai/api/v1/ping"
+HUB_ENDPOINT = "https://rivalabs.ai/api/v1/ping"
 _CONFIG_DIR = Path.home() / ".config" / "riva"
 _HUB_FILE = _CONFIG_DIR / "hub.toml"
 
@@ -69,9 +69,9 @@ def get_endpoint() -> str:
     """Community-ping endpoint, in priority order:
 
     1. explicit ``endpoint`` override in hub.toml
-    2. the linked Riva Server (one copy: pings go to the same server the
-       machine is linked to — see the rivaai.io convergence plan)
-    3. the public default (``HUB_ENDPOINT``)
+    2. the primary linked Riva Server (one copy: pings go to the same server
+       the machine is linked to)
+    3. the public default (``HUB_ENDPOINT`` — the hosted rivalabs.ai)
     """
     raw = _read_raw()
     if raw.get("endpoint"):

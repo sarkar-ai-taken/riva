@@ -2693,7 +2693,7 @@ def disconnect() -> None:
 
 
 @cli.command()
-@click.option("--server", "server_url", default=None, help="Riva Server base URL (default: from the linked server).")
+@click.option("--server", "server_url", default=None, help="Riva Server base URL (default: every linked server).")
 @click.option(
     "--org", "org_name", default=None, help="Organization to report under (default: linked tenant or 'default')."
 )
@@ -2710,6 +2710,11 @@ def fleet(
     contents stay on this machine. Lights up the server dashboard's Security
     and Usage tabs.
 
+    When this machine is linked (`riva link start <url>`) and the target is
+    the linked server, pushes authenticate with the tenant API key from the
+    pairing flow. The legacy client-key registration path is used only when
+    an explicit --server points at a different, non-linked server.
+
     \b
         riva fleet --server https://riva.mycompany.com --org acme-ai
         riva fleet --watch --interval 300
@@ -2717,36 +2722,65 @@ def fleet(
     import time as _t
 
     from riva.hub.fleet_report import FleetReportError, report_once
+    from riva.hub.link import LinkError, load_config, load_links, send_security_findings, send_usage_rollups
 
     console = Console()
 
-    # Resolve the server URL from the linked config if not given explicitly.
-    if not server_url:
-        try:
-            from riva.hub.link import load_config
-
-            cfg = load_config()
-            if cfg and cfg.server_url:
-                server_url = cfg.server_url
-        except Exception:
-            pass
-    if not server_url:
-        console.print("[red]No server URL.[/red] Pass --server or run `riva link start <url>` first.")
+    # Prefer the tenant-key (riva link) path: with no --server, push to every
+    # linked server; with --server naming a linked one, just that one. The
+    # legacy client-key path is used only for an explicit --server pointing
+    # at a server this machine is not linked to.
+    if server_url is None:
+        targets = load_links()
+    else:
+        cfg = load_config(server_url)
+        targets = [cfg] if cfg is not None else []
+    use_link = bool(targets)
+    if not use_link and not server_url:
+        console.print("[red]No server URL.[/red] Pass --server or run `riva link start` first.")
         raise SystemExit(1)
 
+    if use_link and (org_name is not None or lat is not None or lon is not None):
+        console.print(
+            "[yellow]Note:[/yellow] --org/--lat/--lon are ignored on the linked path — "
+            "reports are filed under the linked tenant."
+        )
     org_name = org_name or "default"
 
     def _push() -> None:
-        summary = report_once(server_url, org_name, lat=lat, lon=lon)
-        console.print(
-            f"[green]Pushed[/green] {summary['security_findings']} findings, "
-            f"{summary['usage_rollups']} usage rollups → [cyan]{server_url}[/cyan]"
-        )
+        if use_link:
+            # Reload each link config per push: send_* persist their sync
+            # cursors, and saving a stale startup snapshot here would roll
+            # back progress written concurrently by the heartbeat daemon.
+            errors: list[str] = []
+            for target in targets:
+                cfg = load_config(target.server_url) or target
+                try:
+                    n_findings = send_security_findings(cfg)
+                    n_rollups = send_usage_rollups(cfg)
+                except LinkError as e:
+                    errors.append(f"{cfg.server_url}: {e}")
+                    continue
+                console.print(
+                    f"[green]Pushed[/green] {n_findings} findings, {n_rollups} usage rollups "
+                    f"→ [cyan]{cfg.server_url}[/cyan]"
+                )
+            if errors and len(errors) == len(targets):
+                raise LinkError("; ".join(errors))
+            for err in errors:
+                console.print(f"[yellow]Push failed (will retry):[/yellow] {err}")
+        else:
+            assert server_url is not None  # guaranteed by the check above
+            summary = report_once(server_url, org_name, lat=lat, lon=lon)
+            console.print(
+                f"[green]Pushed[/green] {summary['security_findings']} findings, "
+                f"{summary['usage_rollups']} usage rollups → [cyan]{server_url}[/cyan]"
+            )
 
     if not watch:
         try:
             _push()
-        except FleetReportError as e:
+        except (FleetReportError, LinkError) as e:
             console.print(f"[red]Fleet report failed:[/red] {e}")
             raise SystemExit(1) from e
         return
@@ -2756,7 +2790,7 @@ def fleet(
         while True:
             try:
                 _push()
-            except FleetReportError as e:
+            except (FleetReportError, LinkError) as e:
                 console.print(f"[yellow]Report failed (will retry):[/yellow] {e}")
             _t.sleep(interval)
     except KeyboardInterrupt:
@@ -2771,13 +2805,20 @@ def fleet(
 @cli.group(invoke_without_command=True)
 @click.pass_context
 def link(ctx: click.Context) -> None:
-    """Link this machine to a remote Riva Server.
+    """Link this machine to one or more Riva Servers.
+
+    With no URL, `riva link start` pairs with the hosted service
+    (https://rivalabs.ai), or http://localhost:8600 when RIVA_DEV=1.
+    A machine can be linked to several servers at once — each link keeps
+    its own key and sync cursors, and every sync/fleet push goes to all.
 
     \b
-        riva link start https://riva.mycompany.com
+        riva link start                              # rivalabs.ai
+        riva link start https://riva.mycompany.com   # add a company server
         riva link status
         riva link sync --watch
-        riva link unlink
+        riva link unlink https://riva.mycompany.com
+        riva link unlink --all
 
     Running `riva link` with no subcommand shows the current link status.
     """
@@ -2786,21 +2827,51 @@ def link(ctx: click.Context) -> None:
 
 
 @link.command(name="start")
-@click.argument("server_url")
+@click.argument("server_url", required=False)
 @click.option("--no-wait", is_flag=True, help="Don't poll for approval; fail if not auto-approved.")
 @click.option("--timeout", default=120.0, type=float, help="Seconds to wait for approval when polling.")
-def link_start(server_url: str, no_wait: bool, timeout: float) -> None:
-    """Pair with a Riva Server and store its tenant credentials."""
-    from riva.hub.link import LinkError, redeem_link, register_agents, start_link
+def link_start(server_url: str | None, no_wait: bool, timeout: float) -> None:
+    """Pair with a Riva Server (default: https://rivalabs.ai) and store its credentials."""
+    from riva.hub.link import (
+        LinkError,
+        default_server_url,
+        is_dev_mode,
+        load_config,
+        redeem_link,
+        register_agents,
+        start_link,
+    )
 
     console = Console()
+    used_default = not server_url
+    if not server_url:
+        server_url = default_server_url()
+        mode = " [dim](RIVA_DEV)[/dim]" if is_dev_mode() else ""
+        console.print(f"No server given — using [cyan]{server_url}[/cyan]{mode}")
+
+    def _fail(e: LinkError) -> None:
+        console.print(f"[red]Link failed:[/red] {e}")
+        if used_default and not is_dev_mode():
+            console.print(
+                "[dim]Couldn't pair with the hosted Riva service. If it isn't available yet, "
+                "pass the URL of a server you run (`riva link start https://…`), "
+                "or use RIVA_DEV=1 for a local one on http://localhost:8600. "
+                "Riva keeps working locally without a link.[/dim]"
+            )
+        raise SystemExit(1) from e
+
+    existing = load_config(server_url)
+    if existing is not None:
+        console.print(
+            f"[dim]Already linked to {existing.server_url} (tenant: {existing.tenant_id}); "
+            "re-pairing will replace that link's credentials.[/dim]"
+        )
     console.print(f"Requesting a pairing token from [cyan]{server_url}[/cyan]…")
 
     try:
         started = start_link(server_url)
     except LinkError as e:
-        console.print(f"[red]Link failed:[/red] {e}")
-        raise SystemExit(1) from e
+        _fail(e)
 
     code = started.get("code")
     approve_url = started.get("approve_url")
@@ -2837,8 +2908,7 @@ def link_start(server_url: str, no_wait: bool, timeout: float) -> None:
                         raise
                     _t.sleep(2.0)
     except LinkError as e:
-        console.print(f"[red]Link failed:[/red] {e}")
-        raise SystemExit(1) from e
+        _fail(e)
 
     console.print(f"[bold green]Linked[/bold green] to {config.server_url} (tenant: {config.tenant_id})")
 
@@ -2857,58 +2927,89 @@ def link_start(server_url: str, no_wait: bool, timeout: float) -> None:
 
 @link.command(name="status")
 def link_status() -> None:
-    """Show current server-link status."""
-    from riva.hub.link import CONFIG_FILE, load_config
+    """Show every server this machine is linked to."""
+    from riva.hub.link import CONFIG_FILE, default_server_url, load_links
 
     console = Console()
-    config = load_config()
-    if config is None:
-        console.print("\n[dim]Not linked.[/dim] Run [bold]riva link start <server_url>[/bold] to connect.\n")
+    links = load_links()
+    if not links:
+        console.print(
+            f"\n[dim]Not linked.[/dim] Run [bold]riva link start[/bold] to connect to "
+            f"{default_server_url()}, or [bold]riva link start <server_url>[/bold] for another server.\n"
+        )
         return
 
-    console.print(f"\n[bold green]Linked[/bold green] to {config.server_url} (tenant: {config.tenant_id})")
-    r = config.redacted()
-    console.print(f"  API key: {r['api_key_masked']}")
-    if config.last_synced:
-        import datetime
-        import time
+    import datetime
+    import time
 
-        ago = max(0, int(time.time() - config.last_synced))
-        when = datetime.datetime.fromtimestamp(config.last_synced).strftime("%Y-%m-%d %H:%M:%S")
-        console.print(f"  Last synced: {when} ([dim]{ago}s ago[/dim])")
-    else:
-        console.print("  Last synced: [dim]never[/dim]")
-    console.print(f"  Config: {CONFIG_FILE}\n")
+    console.print(f"\n[bold green]Linked[/bold green] to {len(links)} server(s):")
+    for i, config in enumerate(links):
+        tag = " [dim](primary)[/dim]" if i == 0 and len(links) > 1 else ""
+        console.print(f"\n  [bold]{config.server_url}[/bold]{tag} (tenant: {config.tenant_id})")
+        r = config.redacted()
+        console.print(f"    API key: {r['api_key_masked']}")
+        if config.last_synced:
+            ago = max(0, int(time.time() - config.last_synced))
+            when = datetime.datetime.fromtimestamp(config.last_synced).strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"    Last synced: {when} ([dim]{ago}s ago[/dim])")
+        else:
+            console.print("    Last synced: [dim]never[/dim]")
+    console.print(f"\n  Config: {CONFIG_FILE}\n")
 
 
 @link.command(name="sync")
 @click.option("--watch", is_flag=True, help="Keep heartbeating every --interval seconds.")
 @click.option("--interval", default=30.0, type=float, help="Seconds between heartbeats when --watch.")
-def link_sync(watch: bool, interval: float) -> None:
-    """Push a full sync (agents, audit log, forensics) to the linked server."""
-    from riva.hub.link import DEFAULT_HEARTBEAT_INTERVAL, LinkError, is_linked, start_heartbeat, sync_once
+@click.option("--server", "server_url", default=None, help="Sync only this linked server (default: all).")
+def link_sync(watch: bool, interval: float, server_url: str | None) -> None:
+    """Push a full sync (agents, audit log, forensics) to every linked server."""
+    from riva.hub.link import (
+        DEFAULT_HEARTBEAT_INTERVAL,
+        LinkError,
+        is_linked,
+        load_config,
+        start_heartbeat,
+        sync_all,
+        sync_once,
+    )
 
     console = Console()
     if not is_linked():
-        console.print("[red]Not linked.[/red] Run `riva link start <server_url>` first.")
+        console.print("[red]Not linked.[/red] Run `riva link start` first.")
         raise SystemExit(1)
 
     if not watch:
-        try:
-            result = sync_once()
-        except LinkError as e:
-            console.print(f"[red]Sync failed:[/red] {e}")
-            raise SystemExit(1) from e
-        console.print(
-            f"[green]Synced.[/green] audit entries: {result['audit_ingested']}, "
-            f"forensic sessions: {result['forensic_sessions']}"
-        )
+        results: dict[str, dict | LinkError]
+        if server_url:
+            config = load_config(server_url)
+            if config is None:
+                console.print(f"[red]Not linked to {server_url}.[/red] See `riva link status`.")
+                raise SystemExit(1)
+            try:
+                results = {config.server_url: sync_once(config)}
+            except LinkError as e:
+                console.print(f"[red]Sync failed:[/red] {e}")
+                raise SystemExit(1) from e
+        else:
+            results = sync_all()
+        failed = 0
+        for url, outcome in results.items():
+            if isinstance(outcome, LinkError):
+                failed += 1
+                console.print(f"[red]Sync failed[/red] → [cyan]{url}[/cyan]: {outcome}")
+            else:
+                console.print(
+                    f"[green]Synced[/green] → [cyan]{url}[/cyan]  audit entries: {outcome['audit_ingested']}, "
+                    f"forensic sessions: {outcome['forensic_sessions']}"
+                )
+        if failed == len(results):
+            raise SystemExit(1)
         return
 
     import time
 
     interval = interval or DEFAULT_HEARTBEAT_INTERVAL
-    console.print(f"[dim]Heartbeating every {interval}s. Ctrl-C to stop.[/dim]")
+    console.print(f"[dim]Heartbeating every {interval}s to all linked servers. Ctrl-C to stop.[/dim]")
     stop = start_heartbeat(interval=interval)
     try:
         while True:
@@ -2920,29 +3021,60 @@ def link_sync(watch: bool, interval: float) -> None:
 
 @link.command(name="agents")
 def link_agents() -> None:
-    """Register currently-detected local agents with the linked server."""
-    from riva.hub.link import LinkError, register_agents
+    """Register currently-detected local agents with every linked server."""
+    from riva.hub.link import LinkError, load_links, register_agents
 
     console = Console()
-    try:
-        count = register_agents()
-    except LinkError as e:
-        console.print(f"[red]Registration failed:[/red] {e}")
-        raise SystemExit(1) from e
-    console.print(f"[green]Registered {count} agent(s).[/green]")
+    links = load_links()
+    if not links:
+        console.print("[red]Not linked.[/red] Run `riva link start` first.")
+        raise SystemExit(1)
+    failed = 0
+    for config in links:
+        try:
+            count = register_agents(config)
+            console.print(f"[green]Registered {count} agent(s)[/green] → [cyan]{config.server_url}[/cyan]")
+        except LinkError as e:
+            failed += 1
+            console.print(f"[red]Registration failed[/red] → [cyan]{config.server_url}[/cyan]: {e}")
+    if failed == len(links):
+        raise SystemExit(1)
 
 
 @link.command(name="unlink")
-def link_unlink() -> None:
-    """Disconnect from the Riva Server: revoke our API key, clear credentials."""
-    from riva.hub.link import is_linked, unlink
+@click.argument("server_url", required=False)
+@click.option("--all", "unlink_all", is_flag=True, help="Unlink from every server.")
+def link_unlink(server_url: str | None, unlink_all: bool) -> None:
+    """Disconnect from a Riva Server: revoke our API key, clear its credentials.
+
+    With a single link no argument is needed. With several, pass the server
+    URL to remove, or --all.
+    """
+    from riva.hub.link import load_config, load_links, unlink
 
     console = Console()
-    if not is_linked():
+    links = load_links()
+    if not links:
         console.print("[dim]Not linked — nothing to do.[/dim]")
         return
-    unlink(revoke=True)
-    console.print("[green]Unlinked.[/green] Server credentials removed from ~/.riva/server-link.json.")
+    if unlink_all:
+        n = unlink(revoke=True)
+        console.print(f"[green]Unlinked[/green] from {n} server(s). Credentials removed from ~/.riva/server-link.json.")
+        return
+    if server_url is None:
+        if len(links) > 1:
+            console.print("[red]Linked to several servers.[/red] Pass the server URL to unlink, or --all:")
+            for c in links:
+                console.print(f"  riva link unlink {c.server_url}")
+            raise SystemExit(1)
+        server_url = links[0].server_url
+    if load_config(server_url) is None:
+        console.print(f"[red]Not linked to {server_url}.[/red] See `riva link status`.")
+        raise SystemExit(1)
+    unlink(revoke=True, server_url=server_url)
+    remaining = load_links()
+    tail = f" {len(remaining)} link(s) remain." if remaining else " Credentials removed from ~/.riva/server-link.json."
+    console.print(f"[green]Unlinked[/green] from {server_url}.{tail}")
 
 
 # ---------------------------------------------------------------------------

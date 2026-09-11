@@ -1,5 +1,63 @@
 # Release History
 
+## v0.3.20 (2026-09-06)
+
+Pairs with Riva Server 0.1.0 (first hosted release at https://rivalabs.ai).
+Focused on making the linked-machine path the default and hardening the link
+config.
+
+### New
+
+- **Links to rivalabs.ai by default.** `riva link start` with no URL pairs
+  with the hosted service; the web Settings panel is prefilled with it. Set
+  `RIVA_DEV=1` to default to a local server (`http://localhost:8600`), or
+  `RIVA_SERVER_URL` to point anywhere. The community ping default moved to
+  rivalabs.ai as well.
+- **Link one machine to several Riva Servers.** `riva link start <url>` adds
+  a server rather than replacing the current one — e.g. rivalabs.ai plus a
+  company-hosted server. Each link keeps its own API key and sync cursors;
+  `riva link sync`, `riva fleet`, the heartbeat daemon and `riva link agents`
+  fan out to every linked server, and one server being down never blocks
+  the others. `riva link status` lists them all; `riva link unlink <url>`
+  removes one and `--all` removes every link. The web Settings panel shows a
+  card per server with its own Sync/Unlink and an "Add another server" form.
+  `~/.riva/server-link.json` moved to a `{"version": 2, "links": [...]}`
+  layout; a pre-0.3.20 single-link file is read as-is and upgraded on the
+  next save. `/api/link/status` gains `links`, `default_server_url` and
+  `dev_mode`; `/api/link/sync` and `/api/link/unlink` accept `server_url`.
+
+### Changed
+
+- **`riva fleet` uses the linked tenant key.** When the machine is linked
+  (`riva link start <url>`) and the target is the linked server (or no
+  `--server` is given), pushes authenticate with the pairing-flow API key and
+  are filed under the linked tenant. `--org`, `--lat` and `--lon` are ignored
+  on that path (a note says so). The legacy client-key registration path is
+  used only when an explicit `--server` points at a different, non-linked
+  server. Each push reloads the link config so sync cursors persisted by the
+  heartbeat daemon are never rolled back.
+- **Agent registration carries machine identity.** `riva link start` now
+  sends `machine_name` and `machine_id` with each registered agent, so the
+  server files it on the same device row the heartbeat writes to — no more
+  duplicate "frozen" agent rows next to the live ones.
+
+### Fixed
+
+- A corrupt `~/.riva/server-link.json` (bad JSON, wrong-typed values, bad
+  encoding) now reads as *not linked* instead of raising into every caller.
+- `riva link start` against a host that isn't a Riva Server (a parked domain,
+  an error page) no longer dumps HTML into the terminal, and when the hosted
+  default is unreachable it says how to point at your own server. Riva keeps
+  working locally without a link.
+- `riva link status` reported "Last synced: never" after a successful sync:
+  the audit/forensics steps saved a stale copy of the link config over the
+  heartbeat's timestamp.
+- Removed the `scratch_mock_server.py` development stub.
+
+### Tests
+
+- `tests/test_fleet.py` covers the linked vs legacy `riva fleet` paths.
+
 ## v0.3.19 (2026-07-14)
 
 ### New: `riva link` — device-authorization pairing with a Riva Server
