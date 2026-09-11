@@ -45,6 +45,10 @@ config.
 
 - A corrupt `~/.riva/server-link.json` (bad JSON, wrong-typed values, bad
   encoding) now reads as *not linked* instead of raising into every caller.
+- `riva link start` against a host that isn't a Riva Server (a parked domain,
+  an error page) no longer dumps HTML into the terminal, and when the hosted
+  default is unreachable it says how to point at your own server. Riva keeps
+  working locally without a link.
 - `riva link status` reported "Last synced: never" after a successful sync:
   the audit/forensics steps saved a stale copy of the link config over the
   heartbeat's timestamp.

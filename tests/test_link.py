@@ -489,3 +489,41 @@ def test_hosted_defaults_agree():
 
     assert HUB_ENDPOINT == f"{link.DEFAULT_SERVER_URL}/api/v1/ping"
     assert link.DEFAULT_SERVER_URL == "https://rivalabs.ai"
+
+
+class TestUnavailableHostedServer:
+    """Before/without the hosted server, the default link must fail cleanly."""
+
+    def test_html_error_page_is_not_dumped(self, tmp_config):
+        import io
+        import urllib.error
+        from email.message import Message
+
+        hdrs = Message()
+        hdrs["Content-Type"] = "text/html; charset=utf-8"
+        err = urllib.error.HTTPError(
+            "https://rivalabs.ai/api/v1/pair", 404, "Not Found", hdrs, io.BytesIO(b"<html>" + b"x" * 5000)
+        )
+        with patch.object(link.urllib.request, "urlopen", side_effect=err):
+            with pytest.raises(link.LinkError) as ei:
+                link.start_link("https://rivalabs.ai")
+        msg = str(ei.value)
+        assert "HTML page" in msg and "not a Riva Server" in msg
+        assert len(msg) < 200
+
+    def test_cli_hint_when_default_server_unreachable(self, tmp_config, runner, monkeypatch):
+        monkeypatch.delenv("RIVA_SERVER_URL", raising=False)
+        monkeypatch.delenv("RIVA_DEV", raising=False)
+        with patch.object(
+            link, "start_link", side_effect=link.LinkError("cannot reach https://rivalabs.ai/api/v1/pair: x")
+        ):
+            result = runner.invoke(cli, ["link", "start", "--no-wait"])
+        assert result.exit_code == 1
+        assert "Link failed" in result.output
+        assert "keeps working locally" in result.output
+
+    def test_no_hint_for_explicit_server(self, tmp_config, runner):
+        with patch.object(link, "start_link", side_effect=link.LinkError("cannot reach https://x/api/v1/pair: x")):
+            result = runner.invoke(cli, ["link", "start", "https://x", "--no-wait"])
+        assert result.exit_code == 1
+        assert "keeps working locally" not in result.output

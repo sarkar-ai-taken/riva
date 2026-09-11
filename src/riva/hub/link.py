@@ -314,7 +314,14 @@ def _request(method: str, url: str, payload: dict | None = None, api_key: str | 
             body = resp.read()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")
+        detail = e.read().decode("utf-8", errors="replace").strip()
+        ctype = e.headers.get("Content-Type", "") if e.headers else ""
+        if "text/html" in ctype or detail[:1] == "<":
+            # A parked domain, a CDN error page, or a plain web server: not a
+            # Riva Server API. Don't dump the HTML into the terminal.
+            raise LinkError(f"server returned {e.code} with an HTML page — {url} is not a Riva Server") from e
+        if len(detail) > 300:
+            detail = detail[:300] + "…"
         raise LinkError(f"server returned {e.code}: {detail}") from e
     except (urllib.error.URLError, OSError) as e:
         raise LinkError(f"cannot reach {url}: {e}") from e

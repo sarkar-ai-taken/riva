@@ -2843,10 +2843,23 @@ def link_start(server_url: str | None, no_wait: bool, timeout: float) -> None:
     )
 
     console = Console()
+    used_default = not server_url
     if not server_url:
         server_url = default_server_url()
         mode = " [dim](RIVA_DEV)[/dim]" if is_dev_mode() else ""
         console.print(f"No server given — using [cyan]{server_url}[/cyan]{mode}")
+
+    def _fail(e: LinkError) -> None:
+        console.print(f"[red]Link failed:[/red] {e}")
+        if used_default and not is_dev_mode():
+            console.print(
+                "[dim]Couldn't pair with the hosted Riva service. If it isn't available yet, "
+                "pass the URL of a server you run (`riva link start https://…`), "
+                "or use RIVA_DEV=1 for a local one on http://localhost:8600. "
+                "Riva keeps working locally without a link.[/dim]"
+            )
+        raise SystemExit(1) from e
+
     existing = load_config(server_url)
     if existing is not None:
         console.print(
@@ -2858,8 +2871,7 @@ def link_start(server_url: str | None, no_wait: bool, timeout: float) -> None:
     try:
         started = start_link(server_url)
     except LinkError as e:
-        console.print(f"[red]Link failed:[/red] {e}")
-        raise SystemExit(1) from e
+        _fail(e)
 
     code = started.get("code")
     approve_url = started.get("approve_url")
@@ -2896,8 +2908,7 @@ def link_start(server_url: str | None, no_wait: bool, timeout: float) -> None:
                         raise
                     _t.sleep(2.0)
     except LinkError as e:
-        console.print(f"[red]Link failed:[/red] {e}")
-        raise SystemExit(1) from e
+        _fail(e)
 
     console.print(f"[bold green]Linked[/bold green] to {config.server_url} (tenant: {config.tenant_id})")
 
